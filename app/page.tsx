@@ -1,6 +1,7 @@
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { AuthExample } from "@/components/AuthExample"
-import { Sparkles, Code, Zap } from "lucide-react"
+import { Sparkles, Code, Zap, Upload } from "lucide-react"
 
 export default function Home() {
   return (
@@ -24,7 +25,13 @@ export default function Home() {
           </div>
           
           <div className="flex gap-4 mt-4">
-            <Button variant="default">
+            <Link href="/upload">
+              <Button variant="default">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload to S3
+              </Button>
+            </Link>
+            <Button variant="outline">
               <Code className="mr-2 h-4 w-4" />
               Get Started
             </Button>
