@@ -1,0 +1,28 @@
+---
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+### Next.js
+- Use the App Router for better performance and organization.
+- Implement proper error boundaries to handle errors gracefully.
+- Utilize static site generation (SSG) and server-side rendering (SSR) appropriately for optimal performance.
+
+### TypeScript
+- Enable strict mode for better type safety and error detection.
+- Prefer using interfaces over type aliases for defining object shapes.
+- Utilize type guards and assertions to ensure type safety in complex scenarios.
+
+### Testing: Jest
+- Write unit tests for components and utility functions to ensure reliability.
+- Use snapshot testing for React components to catch unexpected changes.
+- Implement integration tests to verify the interaction between components and APIs.
+
+### UI: Radix UI, Tailwind CSS, Lucide React, Shadcn
+- Use Tailwind CSS for utility-first styling and maintain consistency across components.
+- Follow Radix UI guidelines for accessible and customizable components.
+- Ensure all UI components are responsive and adhere to accessibility standards.
+- Utilize Lucide React icons for a consistent iconography across the application.
+
+### Other: Firebase Auth, Zustand
+- Implement Firebase Auth for secure user authentication and manage user sessions effectively.
+- Use Zustand for state management to keep your application state predictable and easy to debug.

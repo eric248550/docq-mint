@@ -1,0 +1,10 @@
+---
+name: docker-compose-best-practices.mdc
+description: Best practices for using Docker Compose
+globs: **/*.{yml,yaml}
+---
+
+- Use named volumes for persistent data storage
+- Define environment variables for configuration management
+- Keep services isolated and use networks for communication
+- Use multi-stage builds for optimized image sizes

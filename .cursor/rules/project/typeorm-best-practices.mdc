@@ -1,0 +1,10 @@
+---
+name: typeorm-best-practices.mdc
+description: Best practices for TypeORM usage and database interactions
+globs: **/*.{ts,tsx}
+---
+
+- Use migrations for database schema changes
+- Define entities with clear relationships and constraints
+- Utilize lazy loading for related entities to optimize performance
+- Implement repository patterns for data access

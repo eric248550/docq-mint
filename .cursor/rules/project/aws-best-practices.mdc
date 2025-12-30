@@ -1,0 +1,10 @@
+---
+name: aws-best-practices.mdc
+description: Guidelines for using AWS services effectively
+globs: **/*.{yml,json}
+---
+
+- Use IAM roles for secure access management
+- Implement RDS backups and monitoring for database reliability
+- Utilize ECS task definitions for scalable application deployment
+- Regularly review and optimize resource usage to manage costs

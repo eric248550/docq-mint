@@ -1,0 +1,10 @@
+---
+name: jest-best-practices.mdc
+description: Best practices for testing with Jest
+globs: **/*.{ts,tsx}
+---
+
+- Write unit tests for all service and controller methods
+- Use mocks and spies to isolate dependencies in tests
+- Organize tests in a clear directory structure
+- Implement coverage reports to ensure adequate test coverage

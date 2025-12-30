@@ -1,0 +1,10 @@
+---
+name: postgresql-best-practices.mdc
+description: Guidelines for using PostgreSQL effectively
+globs: **/*.{sql}
+---
+
+- Use appropriate data types for performance and storage efficiency
+- Implement indexing on frequently queried columns
+- Utilize transactions for batch operations to maintain data integrity
+- Regularly analyze and optimize query performance
