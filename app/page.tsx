@@ -15,11 +15,11 @@ export default function Home() {
               UpGrades by DocQ-Mint
             </h1>
             <p className="text-2xl md:text-3xl font-semibold text-foreground">
-              Blockchain-Powered Student Credentialing
+            Blockchain Powered Record Issuance and Verification
             </p>
             <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-              Making academic records secure, verifiable, and accessible for life. 
-              We combine user-friendly design with enterprise-grade security for the future of education.
+              Making records secure, verifiable, and accessible for life. 
+              We combine user-friendly design with enterprise-grade security.
             </p>
           </div>
           
@@ -43,7 +43,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold mb-4">
-              Built for Schools and Students
+              Built for issuers, holders and verifiers
             </h2>
             <p className="text-xl text-muted-foreground">
               Secure, scalable, and simple to use
@@ -55,7 +55,7 @@ export default function Home() {
               <div className="p-4 bg-primary/10 rounded-lg w-fit">
                 <Building2 className="h-8 w-8 text-primary" />
               </div>
-              <h3 className="text-xl font-semibold">School Management</h3>
+              <h3 className="text-xl font-semibold">Admin Management</h3>
               <p className="text-muted-foreground leading-relaxed">
                 Create and manage schools, invite students, and organize documents efficiently with our intuitive platform.
               </p>
@@ -75,7 +75,7 @@ export default function Home() {
               <div className="p-4 bg-primary/10 rounded-lg w-fit">
                 <GraduationCap className="h-8 w-8 text-primary" />
               </div>
-              <h3 className="text-xl font-semibold">Student Portal</h3>
+              <h3 className="text-xl font-semibold">Holder Portal</h3>
               <p className="text-muted-foreground leading-relaxed">
                 Students can access, view, and share their verified credentials anytime, anywhere, for life.
               </p>
@@ -112,7 +112,7 @@ export default function Home() {
       {/* CTA Section */}
       <section className="py-20 px-8 bg-gradient-to-t from-muted/50 to-background">
         <div className="max-w-4xl mx-auto text-center space-y-8">
-          <h2 className="text-4xl md:text-5xl font-bold">Ready to Transform Education?</h2>
+          <h2 className="text-4xl md:text-5xl font-bold">Ready to Transform  Record Creation?</h2>
           <p className="text-xl text-muted-foreground leading-relaxed">
             Join us in building the future of secure, verifiable academic credentials. 
             Whether you&apos;re a school administrator or a student, we&apos;re here to help.

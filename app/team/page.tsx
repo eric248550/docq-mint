@@ -10,7 +10,7 @@ export default function TeamPage() {
     {
       name: "Dr. Randall D'Souza",
       role: "CEO",
-      image: "/people/CEO-Randall.jpg",
+      image: "/people/CEO-Randall.webp",
       statement: "Dr. Randall D'Souza, Founder & CEO of UpGrades by DocQ-Mint, is building blockchain-powered student credentialing solutions. With a strong research background and global recognition, he is committed to making academic records secure, verifiable, and accessible for life."
     },
     {
@@ -41,7 +41,7 @@ export default function TeamPage() {
       name: "Eric Tsai",
       role: "Senior Developer",
       image: "/people/Senior Developer - Eric.jpg",
-      statement: "Full-Stack Engineer specializing in AI, Web3, and scalable apps. Cardano Ambassador and developer behind 20+ blockchain projects, including the largest Cardano NFT minting platform."
+      statement: "Full-Stack Engineer specializing in AI, Web3, and scalable apps. Blockchain Ambassador and developer behind 20+ blockchain projects"
     },
     {
       name: "Nina Zeng, PhD",
