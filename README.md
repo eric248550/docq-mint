@@ -1,72 +1,180 @@
-# DocQ Mint
+# DOCQ Mint - MVP
 
-A Next.js application built with TypeScript, Tailwind CSS, Shadcn/ui, Firebase Auth, and Zustand.
+Academic document management and verification system for schools and students.
 
-## Tech Stack
+## 🚀 Features
 
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type safety with strict mode enabled
-- **Tailwind CSS** - Utility-first CSS framework
-- **Shadcn/ui** - Accessible component library built on Radix UI
-- **Lucide React** - Icon library
-- **Firebase Auth** - User authentication
-- **Zustand** - State management
-- **Jest** - Testing framework
+- **Firebase Authentication** - Email/Password and Google Sign-in
+- **School Management** - Create and manage schools with role-based access
+- **Document Upload** - Secure AWS S3 storage with file hashing
+- **Student Portal** - Students can view and download their documents
+- **Member Management** - Invite students and manage school memberships
 
-## Getting Started
+## 📋 Prerequisites
 
-1. Install dependencies:
-```bash
-npm install
+- Node.js 18+ 
+- PostgreSQL database (Heroku or similar)
+- Firebase project
+- AWS S3 bucket
+
+## 🛠️ Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo>
+   cd docq-mint
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Configure environment variables**
+   
+   Copy `.env.example` to `.env.local`:
+   ```bash
+   cp .env.example .env.local
+   ```
+   
+   Fill in your credentials:
+   - Firebase configuration (from Firebase Console)
+   - `DATABASE_URL` - PostgreSQL connection string
+   - AWS S3 credentials (region, access key, secret, bucket name)
+
+4. **Set up database**
+   
+   Run the schema on your PostgreSQL database:
+   ```bash
+   psql $DATABASE_URL < schema.sql
+   ```
+
+5. **Run development server**
+   ```bash
+   npm run dev
+   ```
+   
+   Open [http://localhost:3000](http://localhost:3000)
+
+## 📖 User Guide
+
+### For School Administrators
+
+1. Sign up/Sign in with Firebase Auth
+2. Select "School Administrator" identity
+3. Create a school if none exists
+4. From the dashboard:
+   - Upload documents for students
+   - Invite students and members
+   - Manage school settings
+
+### For Students
+
+1. Sign up/Sign in (must be invited by school first)
+2. Select "Student" identity
+3. View and download your documents
+
+## 🏗️ Project Structure
+
 ```
-
-2. Set up environment variables:
-Create a `.env.local` file in the root directory:
-```env
-NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
-NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
-```
-
-3. Run the development server:
-```bash
-npm run dev
-```
-
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## Project Structure
-
-```
-├── app/              # Next.js App Router pages
+├── app/
+│   ├── api/          # API routes
+│   ├── dashboard/    # Dashboard page
+│   ├── identity/     # Identity selection page
+│   └── page.tsx      # Landing page
 ├── components/       # React components
-│   └── ui/          # Shadcn/ui components
-├── lib/             # Utility functions and configurations
-├── store/           # Zustand stores
-└── .cursor/         # Cursor IDE rules
+├── hooks/           # Custom React hooks
+├── lib/
+│   ├── api/         # API client utilities
+│   ├── auth/        # Firebase auth utilities
+│   ├── db/          # Database utilities
+│   ├── firebase/    # Firebase config
+│   └── s3/          # S3 utilities
+├── store/           # Zustand state management
+└── schema.sql       # Database schema
 ```
 
-## Available Scripts
+## 🔒 Security Notes
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
-- `npm run test` - Run Jest tests
-- `npm run test:watch` - Run Jest tests in watch mode
+⚠️ **This is an MVP with simplified security.** For production:
 
-## Features
+- Implement Firebase Admin SDK for server-side token verification
+- Add comprehensive input validation and sanitization
+- Implement rate limiting
+- Add audit logging
+- Configure proper CORS for S3
+- Add server-side file validation
 
-- ✅ Next.js App Router
-- ✅ TypeScript with strict mode
-- ✅ Tailwind CSS configuration
-- ✅ Shadcn/ui components
-- ✅ Firebase Auth setup
-- ✅ Zustand state management
-- ✅ Jest testing configuration
-- ✅ Error boundaries
-- ✅ Responsive design
+## 📚 Documentation
 
+- [IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md) - Detailed implementation guide
+- [REQUIREMENT.md](./REQUIREMENT.md) - Product requirements
+- [schema.sql](./schema.sql) - Database schema
+
+## 🧪 Testing
+
+```bash
+npm test
+```
+
+## 🚢 Deployment
+
+### Vercel (Recommended)
+
+1. Push code to GitHub
+2. Connect repository to Vercel
+3. Set environment variables in Vercel dashboard
+4. Deploy
+
+## 🛠️ Tech Stack
+
+- **Frontend**: Next.js 14, React, TypeScript, Tailwind CSS
+- **Authentication**: Firebase Auth
+- **Database**: PostgreSQL
+- **Storage**: AWS S3
+- **State Management**: Zustand
+- **UI Components**: Shadcn/ui, Radix UI
+
+## 📝 API Routes
+
+### Authentication
+- `GET /api/users/me` - Get current user
+- `POST /api/users/identity` - Set identity context
+
+### Schools
+- `GET /api/schools` - List schools
+- `POST /api/schools` - Create school
+- `GET /api/schools/:id` - Get school
+- `PATCH /api/schools/:id` - Update school
+- `DELETE /api/schools/:id` - Delete school
+
+### Members
+- `GET /api/schools/:id/members` - List members
+- `POST /api/schools/:id/members` - Invite member
+- `DELETE /api/schools/:id/members/:memberId` - Remove member
+
+### Documents
+- `GET /api/schools/:id/documents` - List documents
+- `POST /api/schools/:id/documents` - Create document
+- `GET /api/documents/:id` - Get document
+- `DELETE /api/documents/:id` - Delete document
+- `GET /api/students/documents` - Student's documents
+
+## 🚫 Out of Scope
+
+The following features are explicitly excluded from this MVP:
+
+- Blockchain/NFT minting
+- Email delivery
+- Wallet management UI
+- Advanced role-based permissions
+- Document encryption
+- Multi-factor authentication
+
+## 📄 License
+
+Private project - All rights reserved
+
+## 🤝 Support
+
+For questions or issues, refer to the documentation files or contact the development team.

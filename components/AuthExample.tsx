@@ -91,10 +91,10 @@ export function AuthExample() {
         
         <div className="flex gap-2 w-full">
           <Button 
-            onClick={() => router.push('/dashboard')} 
+            onClick={() => router.push('/identity')} 
             className="flex-1"
           >
-            Go to Dashboard
+            Continue
             <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         </div>

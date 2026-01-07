@@ -9,8 +9,13 @@ export interface UploadProgress {
   s3Url?: string;
 }
 
+export interface UploadResult {
+  url: string;
+  key: string;
+}
+
 export interface UseS3UploadReturn {
-  uploadFile: (file: File, userId?: string, folder?: string) => Promise<void>;
+  uploadFile: (file: File, userId?: string, folder?: string) => Promise<UploadResult | null>;
   progress: UploadProgress;
   reset: () => void;
 }
@@ -30,7 +35,7 @@ export function useS3Upload(): UseS3UploadReturn {
     });
   };
 
-  const uploadFile = async (file: File, userId?: string, folder?: string) => {
+  const uploadFile = async (file: File, userId?: string, folder?: string): Promise<UploadResult | null> => {
     try {
       setProgress({
         fileName: file.name,
@@ -93,6 +98,8 @@ export function useS3Upload(): UseS3UploadReturn {
         s3Key: key,
         s3Url,
       });
+      
+      return { url: s3Url, key };
     } catch (error) {
       console.error('Upload error:', error);
       setProgress({
@@ -101,6 +108,7 @@ export function useS3Upload(): UseS3UploadReturn {
         status: 'error',
         error: error instanceof Error ? error.message : 'Upload failed',
       });
+      return null;
     }
   };
 
