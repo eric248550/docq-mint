@@ -94,7 +94,7 @@ export default function TeamPage() {
                     src={member.image}
                     alt={member.name}
                     fill
-                    className="object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="object-cover object-top group-hover:scale-105 transition-transform duration-300"
                   />
                 </div>
                 <div className="p-6 space-y-3">
