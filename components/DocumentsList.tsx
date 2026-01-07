@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useSchoolDocuments, useSchoolMembers } from '@/hooks/useSchools';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { FileText, Upload, Loader2, Trash2, Download } from 'lucide-react';
 import { DBDocument } from '@/lib/db/types';
@@ -278,6 +279,9 @@ interface DocumentRowProps {
 }
 
 function DocumentRow({ document, onDelete }: DocumentRowProps) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  const { getAuthToken } = useAuthStore();
+
   const getDocumentTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
       report_card: 'Report Card',
@@ -295,6 +299,39 @@ function DocumentRow({ document, onDelete }: DocumentRowProps) {
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      // Get auth token
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      // Get presigned URL from backend
+      const response = await fetch(`/api/documents/${document.id}/download`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get download URL');
+      }
+
+      const { url, fileName } = await response.json();
+      
+      // Open in new tab or trigger download
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download document. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -324,9 +361,14 @@ function DocumentRow({ document, onDelete }: DocumentRowProps) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => window.open(document.file_storage_url, '_blank')}
+          onClick={handleDownload}
+          disabled={isDownloading}
         >
-          <Download className="h-4 w-4" />
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
         </Button>
         {onDelete && (
           <Button

@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useStudentDocuments } from '@/hooks/useSchools';
+import { useAuthStore } from '@/store/useAuthStore';
 import { DBDocument } from '@/lib/db/types';
-import { FileText, Download, Calendar } from 'lucide-react';
+import { FileText, Download, Calendar, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function StudentDashboard() {
@@ -53,6 +55,9 @@ export function StudentDashboard() {
 }
 
 function DocumentCard({ document }: { document: DBDocument }) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  const { getAuthToken } = useAuthStore();
+
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -70,6 +75,39 @@ function DocumentCard({ document }: { document: DBDocument }) {
       others: 'Document',
     };
     return labels[type] || type;
+  };
+
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      // Get auth token
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      // Get presigned URL from backend
+      const response = await fetch(`/api/documents/${document.id}/download`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get download URL');
+      }
+
+      const { url, fileName } = await response.json();
+      
+      // Open in new tab
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download document. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -100,10 +138,20 @@ function DocumentCard({ document }: { document: DBDocument }) {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => window.open(document.file_storage_url, '_blank')}
+          onClick={handleDownload}
+          disabled={isDownloading}
         >
-          <Download className="h-4 w-4 mr-2" />
-          Download
+          {isDownloading ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Loading...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4 mr-2" />
+              Download
+            </>
+          )}
         </Button>
       </div>
     </div>

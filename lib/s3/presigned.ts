@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, bucketName } from './config';
 
@@ -51,6 +51,23 @@ export async function generatePresignedUploadUrl(
     expiresIn,
     headers,
   };
+}
+
+/**
+ * Generate a presigned URL for downloading a file from S3
+ * This should only be called server-side
+ */
+export async function getDownloadPresignedUrl(
+  key: string,
+  expiresIn: number = 3600 // 1 hour default
+): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+  });
+
+  const url = await getSignedUrl(s3Client, command, { expiresIn });
+  return url;
 }
 
 /**
