@@ -14,13 +14,13 @@ export default function TeamPage() {
       statement: "Dr. Randall D'Souza, Founder & CEO of UpGrades by DocQ-Mint, is building blockchain-powered student credentialing solutions. With a strong research background and global recognition, he is committed to making academic records secure, verifiable, and accessible for life."
     },
     {
-      name: "Rohann",
+      name: "Dr. Rohann D'Souza",
       role: "CTO",
       image: "/people/CTO - Rohann.png",
       statement: "Blockchain-powered credentials: simple for schools to adopt, secure for students to own, and scalable for the future of education. As CTO, I focus on delivering tamper-proof, verifiable records through a Web2.5 approach—combining user-friendly design with enterprise-grade security, reliability, and global scalability."
     },
     {
-      name: "Daniel",
+      name: "Daniel Sullivan",
       role: "CCO",
       image: "/people/CCO - Daniel.jpg",
       statement: "Driving growth through strategy, partnerships, and communication—delivering measurable value to schools, students, and stakeholders. As CCO, I focus on building long-term relationships, shaping go-to-market strategies, and ensuring that our solutions not only reach new institutions but also create lasting impact across the education landscape."
@@ -32,7 +32,7 @@ export default function TeamPage() {
       statement: "I'm passionate about harnessing blockchain to transform education with secure, verifiable academic records. With 28 years of experience in insurance and entrepreneurial leadership, I bring proven expertise in strategy, sales, and operations. I am committed to driving adoption, forging strong partnerships, and advancing a more transparent, learner-centered education system."
     },
     {
-      name: "Monique",
+      name: "Monique Bercx",
       role: "Legal Advisor",
       image: "/people/Legal Advisor - Monique.jpg",
       statement: "Legal Advisor with over 10 years of experience in an international environment. Focused on drafting contracts, ensuring compliance, and aligning agreements with business goals. A reliable partner for clear and practical legal support."
