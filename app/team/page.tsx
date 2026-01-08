@@ -10,7 +10,7 @@ export default function TeamPage() {
     {
       name: "Dr. Randall D'Souza",
       role: "CEO",
-      image: "/people/CEO-Randall.webp",
+      image: "/people/CEO-Randall.jpg",
       statement: "Dr. Randall D'Souza, Founder & CEO of UpGrades by DocQ-Mint, is building blockchain-powered student credentialing solutions. With a strong research background and global recognition, he is committed to making academic records secure, verifiable, and accessible for life."
     },
     {
