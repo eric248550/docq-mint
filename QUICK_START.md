@@ -141,7 +141,6 @@ After running `schema.sql`, you should have:
 - ✅ `docq_mint_school_memberships` - User-School relationships
 - ✅ `docq_mint_documents` - Document records
 - ✅ `docq_mint_nfts` - NFT records (future use)
-- ✅ `docq_mint_nft_mint_queue` - Mint queue (future use)
 - ✅ `docq_mint_claims` - NFT claims (future use)
 
 ---

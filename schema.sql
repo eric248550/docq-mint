@@ -6,10 +6,9 @@ CREATE TABLE docq_mint_wallets (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   chain           TEXT NOT NULL,            -- cardano
   address         TEXT NOT NULL UNIQUE,
-  wallet_type     TEXT NOT NULL,            -- mint | school | student | teacher | admin
-  sig_type        TEXT NOT NULL DEFAULT 'single',            -- single | multisig
+  wallet_role     TEXT NOT NULL,            -- issuer | holder | system
   network         TEXT NOT NULL,            -- mainnet | preprod
-  owner_user_id   UUID,                     
+  owner_id   UUID,                          -- (ref: docq_mint_users.id | docq_mint_schools.id)
   encrypted_seed_phrase     TEXT NOT NULL, -- encrypted with AES-256-GCM
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -104,38 +103,6 @@ CREATE TABLE docq_mint_nfts (
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
-
--- ------------------------------------------------------------
--- NFT MINT QUEUE TABLE
--- ------------------------------------------------------------ 
-
-CREATE TABLE docq_mint_nft_mint_queue (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  wallet_id UUID REFERENCES docq_mint_wallets(id),
-  chain TEXT NOT NULL, -- ethereum / polygon / kaia / cardano
-  status TEXT,
-
-  mint_items JSONB NOT NULL,
-  /*
-    example:
-    [
-      { "nft_id": "uuid", "to": "0xabc...", "token_uri": "ipfs://..." },
-      { "nft_id": "uuid", "to": "0xdef...", "token_uri": "ipfs://..." }
-    ]
-  */
-
-  quantity INT GENERATED ALWAYS AS (jsonb_array_length(mint_items)) STORED,
-
-  tx_hash TEXT,
-
-  error_message TEXT,
-
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 
 -- ------------------------------------------------------------
 -- CLAIMS TABLE

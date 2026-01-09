@@ -26,7 +26,7 @@ export default function TeamPage() {
       statement: "Driving growth through strategy, partnerships, and communication—delivering measurable value to schools, students, and stakeholders. As CCO, I focus on building long-term relationships, shaping go-to-market strategies, and ensuring that our solutions not only reach new institutions but also create lasting impact across the education landscape."
     },
     {
-      name: "Eric",
+      name: "Eric Plourde Sr.",
       role: "Chief of Staff",
       image: "/people/Chief Of Staff - Eric.jpg",
       statement: "I'm passionate about harnessing blockchain to transform education with secure, verifiable academic records. With 28 years of experience in insurance and entrepreneurial leadership, I bring proven expertise in strategy, sales, and operations. I am committed to driving adoption, forging strong partnerships, and advancing a more transparent, learner-centered education system."
