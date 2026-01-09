@@ -8,11 +8,14 @@
     "start": "next start",
     "lint": "next lint",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "wallet:test": "ts-node scripts/test-wallet-generation.ts",
+    "wallet:gen-key": "node scripts/generate-encryption-key.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.958.0",
     "@aws-sdk/s3-request-presigner": "^3.958.0",
+    "@meshsdk/core": "^1.9.0-beta.94",
     "@radix-ui/react-tabs": "^1.1.13",
     "@types/pg": "^8.16.0",
     "class-variance-authority": "^0.7.0",

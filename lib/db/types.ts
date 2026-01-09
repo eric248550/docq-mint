@@ -4,10 +4,10 @@ export interface DBWallet {
   id: string;
   chain: string;
   address: string;
-  wallet_type: string;
-  sig_type: string;
+  stake_address: string;
+  wallet_role: string;
   network: string;
-  owner_user_id: string | null;
+  owner_id: string | null;
   encrypted_seed_phrase: string;
   created_at: Date;
 }
@@ -87,4 +87,6 @@ export type SchoolMembershipRole = 'owner' | 'admin' | 'viewer' | 'student' | 'p
 export type MembershipStatus = 'active' | 'invited' | 'removed';
 export type DocumentType = 'report_card' | 'transcript' | 'certificate' | 'diploma' | 'others';
 export type IdentityContext = 'student' | 'school_admin';
+export type WalletRole = 'issuer' | 'holder' | 'system';
+export type CardanoNetwork = 'mainnet' | 'preprod';
 

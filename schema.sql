@@ -6,6 +6,7 @@ CREATE TABLE docq_mint_wallets (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   chain           TEXT NOT NULL,            -- cardano
   address         TEXT NOT NULL UNIQUE,
+  stake_address   TEXT NOT NULL UNIQUE,
   wallet_role     TEXT NOT NULL,            -- issuer | holder | system
   network         TEXT NOT NULL,            -- mainnet | preprod
   owner_id   UUID,                          -- (ref: docq_mint_users.id | docq_mint_schools.id)

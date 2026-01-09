@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, getUserMemberships } from '@/lib/middleware/auth';
 import { query, queryOne } from '@/lib/db/config';
 import { DBSchool } from '@/lib/db/types';
+import { createWalletForOwner } from '@/lib/wallet/cardano';
 
 /**
  * GET /api/schools
@@ -66,6 +67,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Create wallet for school (issuer role)
+    const network = process.env.CARDANO_NETWORK === 'mainnet' ? 'mainnet' : 'preprod';
+    const wallet = await createWalletForOwner(school.id, 'issuer', network as 'mainnet' | 'preprod');
+    
+    if (!wallet) {
+      console.error('Failed to create wallet for school, but continuing with school creation');
+    } else {
+      // Update school with custody wallet ID
+      await query(
+        `UPDATE docq_mint_schools SET custody_wallet_id = $1 WHERE id = $2`,
+        [wallet.id, school.id]
+      );
+    }
+
     // Add user as owner
     await query(
       `INSERT INTO docq_mint_school_memberships (school_id, user_id, role, status)
@@ -73,7 +88,14 @@ export async function POST(request: NextRequest) {
       [school.id, dbUser.id]
     );
 
-    return NextResponse.json({ school }, { status: 201 });
+    return NextResponse.json({ 
+      school: { ...school, custody_wallet_id: wallet?.id },
+      wallet: wallet ? {
+        id: wallet.id,
+        address: wallet.address,
+        stake_address: wallet.stake_address,
+      } : null
+    }, { status: 201 });
   });
 }
 
