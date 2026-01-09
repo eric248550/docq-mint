@@ -87,7 +87,7 @@ export async function POST(
       file_hash,
       file_mime_type,
       file_size_bytes,
-      encryption_key,
+      original_filename,
     } = body;
 
     // Validate required fields
@@ -127,7 +127,7 @@ export async function POST(
     const document = await queryOne<DBDocument>(
       `INSERT INTO docq_mint_documents 
        (school_id, student_id, document_type, file_storage_provider, 
-        file_storage_url, file_hash, file_mime_type, file_size_bytes, encryption_key)
+        file_storage_url, file_hash, file_mime_type, file_size_bytes, original_filename)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
@@ -139,7 +139,7 @@ export async function POST(
         file_hash,
         file_mime_type || null,
         file_size_bytes || null,
-        encryption_key || null,
+        original_filename || null,
       ]
     );
 

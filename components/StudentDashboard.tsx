@@ -118,17 +118,17 @@ function DocumentCard({ document }: { document: DBDocument }) {
             <FileText className="h-6 w-6 text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold mb-1">
-              {getDocumentTypeLabel(document.document_type)}
+            <h3 className="text-lg font-semibold mb-1 truncate">
+              {document.original_filename || getDocumentTypeLabel(document.document_type)}
             </h3>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              {document.original_filename && (
+                <span>{getDocumentTypeLabel(document.document_type)}</span>
+              )}
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
                 <span>{formatDate(document.created_at)}</span>
               </div>
-              {document.file_mime_type && (
-                <span className="uppercase">{document.file_mime_type.split('/')[1]}</span>
-              )}
               {document.file_size_bytes && (
                 <span>{(document.file_size_bytes / 1024).toFixed(0)} KB</span>
               )}

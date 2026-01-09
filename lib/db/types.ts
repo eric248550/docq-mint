@@ -50,7 +50,7 @@ export interface DBDocument {
   file_hash: string;
   file_mime_type: string | null;
   file_size_bytes: number | null;
-  encryption_key: string | null;
+  original_filename: string | null;
   created_at: Date;
 }
 

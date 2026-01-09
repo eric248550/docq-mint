@@ -76,8 +76,8 @@ CREATE TABLE docq_mint_documents (
   file_hash         TEXT NOT NULL,           -- SHA256 / Blake2b (file-level)
   file_mime_type    TEXT,                    -- application/pdf, image/png, etc
   file_size_bytes   BIGINT,
+  original_filename TEXT,                    -- Original filename from upload
 
-  encryption_key    TEXT,                    -- 🔐 used for NFT metadata / protected view
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

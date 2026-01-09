@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSchoolDocuments, useSchoolMembers } from '@/hooks/useSchools';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download } from 'lucide-react';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus } from 'lucide-react';
 import { DBDocument } from '@/lib/db/types';
 
 interface DocumentsListProps {
@@ -14,26 +14,66 @@ interface DocumentsListProps {
 }
 
 export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
-  const { documents, isLoading, error, createDocument, deleteDocument } = useSchoolDocuments(schoolId);
+  const { documents, isLoading, error, createDocument, updateDocument, deleteDocument } = useSchoolDocuments(schoolId);
   const { members } = useSchoolMembers(schoolId);
   const { uploadFile, progress, reset } = useS3Upload();
   
   const [showUploadForm, setShowUploadForm] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const [formData, setFormData] = useState({
     student_id: '',
     document_type: 'report_card',
   });
+  const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
 
   // Only show students who have actually signed up (user_id is not null)
   const students = members.filter(m => m.role === 'student' && m.user_id !== null);
   
-  const isUploading = progress.status === 'uploading';
+  const isUploading = progress.status === 'uploading' || uploadingFiles.size > 0;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      setSelectedFiles(prev => [...prev, ...newFiles]);
     }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    // Filter for accepted file types
+    const acceptedFiles = files.filter(file => {
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      return ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'].includes(extension || '');
+    });
+
+    if (acceptedFiles.length > 0) {
+      setSelectedFiles(prev => [...prev, ...acceptedFiles]);
+    }
+
+    if (acceptedFiles.length < files.length) {
+      alert(`${files.length - acceptedFiles.length} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const calculateFileHash = async (file: File): Promise<string> => {
@@ -46,65 +86,92 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedFile) {
-      alert('Please select a file');
+    if (selectedFiles.length === 0) {
+      alert('Please select at least one file');
       return;
     }
 
+    const studentId = formData.student_id && formData.student_id.trim() !== '' 
+      ? formData.student_id 
+      : undefined;
+
+    let successCount = 0;
+    let failedFiles: string[] = [];
+
     try {
-      // Reset any previous upload state
-      reset();
-      
-      // Upload to S3
-      console.log('Uploading file to S3...');
-      const uploadResult = await uploadFile(selectedFile);
-      
-      if (!uploadResult) {
-        throw new Error('Failed to upload file to S3');
+      // Upload files sequentially
+      for (const file of selectedFiles) {
+        try {
+          setUploadingFiles(prev => new Set(prev).add(file.name));
+
+          // Reset any previous upload state
+          reset();
+          
+          // Upload to S3
+          const uploadResult = await uploadFile(file);
+          
+          if (!uploadResult) {
+            throw new Error('Failed to upload file to S3');
+          }
+          
+          // Calculate file hash
+          const fileHash = await calculateFileHash(file);
+
+          // Create document record
+          await createDocument({
+            student_id: studentId,
+            document_type: formData.document_type,
+            file_storage_provider: 's3',
+            file_storage_url: uploadResult.url,
+            file_hash: fileHash,
+            file_mime_type: file.type,
+            file_size_bytes: file.size,
+            original_filename: file.name,
+          });
+
+          successCount++;
+          
+          setUploadingFiles(prev => {
+            const next = new Set(prev);
+            next.delete(file.name);
+            return next;
+          });
+        } catch (error) {
+          console.error(`Failed to upload ${file.name}:`, error);
+          failedFiles.push(file.name);
+          setUploadingFiles(prev => {
+            const next = new Set(prev);
+            next.delete(file.name);
+            return next;
+          });
+        }
       }
-      
-      console.log('File uploaded to S3:', uploadResult.url);
 
-      // Calculate file hash
-      console.log('Calculating file hash...');
-      const fileHash = await calculateFileHash(selectedFile);
-      console.log('File hash calculated:', fileHash);
+      // Show results
+      if (successCount === selectedFiles.length) {
+        alert(`All ${successCount} document(s) uploaded successfully!`);
+      } else if (successCount > 0) {
+        alert(`${successCount} document(s) uploaded successfully.\n\nFailed: ${failedFiles.join(', ')}`);
+      } else {
+        alert(`Failed to upload all documents.\n\nFailed: ${failedFiles.join(', ')}`);
+      }
 
-      // Validate student_id
-      const studentId = formData.student_id && formData.student_id.trim() !== '' 
-        ? formData.student_id 
-        : undefined;
-
-      console.log('Creating document record...', { studentId, type: formData.document_type });
-
-      // Create document record
-      await createDocument({
-        student_id: studentId,
-        document_type: formData.document_type,
-        file_storage_provider: 's3',
-        file_storage_url: uploadResult.url,
-        file_hash: fileHash,
-        file_mime_type: selectedFile.type,
-        file_size_bytes: selectedFile.size,
-      });
-
-      console.log('Document created successfully');
-
-      // Reset form
-      setShowUploadForm(false);
-      setSelectedFile(null);
-      setFormData({
-        student_id: '',
-        document_type: 'report_card',
-      });
-      reset();
-      
-      alert('Document uploaded successfully!');
+      // Reset form if any uploads succeeded
+      if (successCount > 0) {
+        setShowUploadForm(false);
+        setSelectedFiles([]);
+        setFormData({
+          student_id: '',
+          document_type: 'report_card',
+        });
+        reset();
+      }
     } catch (error) {
-      console.error('Failed to upload document:', error);
+      console.error('Failed to upload documents:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Failed to upload document: ${errorMessage}`);
+      alert(`Failed to upload documents: ${errorMessage}`);
       reset();
+      setUploadingFiles(new Set());
     }
   };
 
@@ -192,17 +259,82 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium">File</label>
-            <input
-              type="file"
-              onChange={handleFileChange}
-              className="w-full mt-1"
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-            />
-            {selectedFile && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Selected: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(0)} KB)
+            <label className="text-sm font-medium">Files</label>
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`mt-1 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                isDragging 
+                  ? 'border-primary bg-primary/5' 
+                  : 'border-gray-300 hover:border-primary/50'
+              }`}
+            >
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground mb-2">
+                Drag and drop files here, or click to browse
               </p>
+              <input
+                type="file"
+                onChange={handleFileChange}
+                multiple
+                className="hidden"
+                id="file-upload"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                disabled={isUploading}
+              />
+              <label htmlFor="file-upload">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isUploading}
+                  onClick={() => document.getElementById('file-upload')?.click()}
+                >
+                  Browse Files
+                </Button>
+              </label>
+              <p className="text-xs text-muted-foreground mt-2">
+                Supported: PDF, DOC, DOCX, JPG, JPEG, PNG
+              </p>
+            </div>
+
+            {selectedFiles.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-sm font-medium">Selected Files ({selectedFiles.length})</p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {selectedFiles.map((file, index) => (
+                    <div
+                      key={`${file.name}-${index}`}
+                      className="flex items-center justify-between p-2 bg-muted rounded-md"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate">{file.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(file.size / 1024).toFixed(0)} KB
+                          </p>
+                        </div>
+                      </div>
+                      {uploadingFiles.has(file.name) ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeFile(index)}
+                          disabled={isUploading}
+                          className="flex-shrink-0"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
@@ -228,15 +360,18 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           )}
 
           <div className="flex gap-2">
-            <Button type="submit" disabled={isUploading || !selectedFile}>
-              {isUploading ? 'Uploading...' : 'Upload Document'}
+            <Button type="submit" disabled={isUploading || selectedFiles.length === 0}>
+              {isUploading 
+                ? `Uploading... (${uploadingFiles.size}/${selectedFiles.length})` 
+                : `Upload ${selectedFiles.length} Document${selectedFiles.length !== 1 ? 's' : ''}`}
             </Button>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
                 setShowUploadForm(false);
-                setSelectedFile(null);
+                setSelectedFiles([]);
+                setUploadingFiles(new Set());
                 reset();
               }}
               disabled={isUploading}
@@ -258,7 +393,9 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
             <DocumentRow
               key={doc.id}
               document={doc}
+              students={students}
               onDelete={!limit ? handleDelete : undefined}
+              onAssign={!limit ? updateDocument : undefined}
             />
           ))}
         </div>
@@ -275,12 +412,31 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
 interface DocumentRowProps {
   document: DBDocument;
+  students: Array<{ id: string; user_id: string | null; email: string | null; role: string }>;
   onDelete?: (id: string) => void;
+  onAssign?: (documentId: string, data: { student_id?: string | null }) => Promise<any>;
 }
 
-function DocumentRow({ document, onDelete }: DocumentRowProps) {
+function DocumentRow({ document, students, onDelete, onAssign }: DocumentRowProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const { getAuthToken } = useAuthStore();
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowAssignDropdown(false);
+      }
+    };
+
+    if (showAssignDropdown) {
+      window.document.addEventListener('mousedown', handleClickOutside);
+      return () => window.document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAssignDropdown]);
 
   const getDocumentTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
@@ -334,20 +490,43 @@ function DocumentRow({ document, onDelete }: DocumentRowProps) {
     }
   };
 
+  const handleAssignStudent = async (studentId: string | null) => {
+    if (!onAssign) return;
+    
+    setIsAssigning(true);
+    setShowAssignDropdown(false);
+    try {
+      await onAssign(document.id, { student_id: studentId });
+    } catch (error) {
+      console.error('Failed to assign student:', error);
+      alert('Failed to assign student. Please try again.');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const getAssignedStudentName = () => {
+    if (!document.student_id) return 'Unassigned';
+    const student = students.find(s => s.user_id === document.student_id);
+    return student?.email || 'Unknown Student';
+  };
+
   return (
     <div className="flex items-center justify-between p-4 border rounded-lg hover:border-primary/50 transition-colors">
       <div className="flex items-center gap-3 flex-1">
         <FileText className="h-5 w-5 text-primary" />
         <div className="flex-1 min-w-0">
-          <p className="font-medium">{getDocumentTypeLabel(document.document_type)}</p>
+          <p className="font-medium truncate">
+            {document.original_filename || getDocumentTypeLabel(document.document_type)}
+          </p>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{formatDate(document.created_at)}</span>
-            {document.file_mime_type && (
+            {document.original_filename && (
               <>
+                <span>{getDocumentTypeLabel(document.document_type)}</span>
                 <span>•</span>
-                <span className="uppercase">{document.file_mime_type.split('/')[1]}</span>
               </>
             )}
+            <span>{formatDate(document.created_at)}</span>
             {document.file_size_bytes && (
               <>
                 <span>•</span>
@@ -358,6 +537,53 @@ function DocumentRow({ document, onDelete }: DocumentRowProps) {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {onAssign && (
+          <div className="relative" ref={dropdownRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAssignDropdown(!showAssignDropdown)}
+              disabled={isAssigning}
+              className="text-xs"
+            >
+              {isAssigning ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <UserPlus className="h-3 w-3 mr-1" />
+              )}
+              {getAssignedStudentName()}
+            </Button>
+            {showAssignDropdown && (
+              <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto">
+                <div className="p-2">
+                  <button
+                    onClick={() => handleAssignStudent(null)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded"
+                  >
+                    Unassign
+                  </button>
+                  {students.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      No active students
+                    </div>
+                  ) : (
+                    students.map((student) => (
+                      <button
+                        key={student.id}
+                        onClick={() => handleAssignStudent(student.user_id!)}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded ${
+                          document.student_id === student.user_id ? 'bg-primary/10' : ''
+                        }`}
+                      >
+                        {student.email || 'Unknown'}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <Button
           variant="ghost"
           size="sm"

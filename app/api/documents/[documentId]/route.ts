@@ -94,13 +94,51 @@ export async function PATCH(
     const body = await request.json();
     const { document_type, student_id } = body;
 
+    // If student_id is being updated, verify student belongs to school
+    if (student_id !== undefined && student_id !== null && document.school_id) {
+      const membership = await queryOne(
+        `SELECT * FROM docq_mint_school_memberships 
+         WHERE school_id = $1 AND user_id = $2 AND role = 'student' AND status = 'active'`,
+        [document.school_id, student_id]
+      );
+
+      if (!membership) {
+        return NextResponse.json(
+          { error: 'Student not found in this school' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Build update query dynamically
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramCount = 1;
+
+    if (document_type !== undefined) {
+      updates.push(`document_type = $${paramCount}`);
+      values.push(document_type);
+      paramCount++;
+    }
+
+    if (student_id !== undefined) {
+      updates.push(`student_id = $${paramCount}`);
+      values.push(student_id);
+      paramCount++;
+    }
+
+    if (updates.length === 0) {
+      return NextResponse.json({ document });
+    }
+
+    values.push(documentId);
+
     const updatedDocument = await queryOne<DBDocument>(
       `UPDATE docq_mint_documents
-       SET document_type = COALESCE($1, document_type),
-           student_id = COALESCE($2, student_id)
-       WHERE id = $3
+       SET ${updates.join(', ')}
+       WHERE id = $${paramCount}
        RETURNING *`,
-      [document_type || null, student_id || null, documentId]
+      values
     );
 
     return NextResponse.json({ document: updatedDocument });

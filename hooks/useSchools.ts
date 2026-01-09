@@ -223,6 +223,7 @@ export function useSchoolDocuments(schoolId: string | null) {
     file_hash: string;
     file_mime_type?: string;
     file_size_bytes?: number;
+    original_filename?: string;
   }) => {
     if (!schoolId) throw new Error('No school selected');
 
@@ -241,6 +242,31 @@ export function useSchoolDocuments(schoolId: string | null) {
     if (response.error) throw new Error(response.error);
     if (response.data) {
       setDocuments([response.data.document, ...documents]);
+      return response.data.document;
+    }
+  };
+
+  const updateDocument = async (documentId: string, data: {
+    document_type?: string;
+    student_id?: string | null;
+  }) => {
+    const token = await getAuthToken();
+    if (!token) throw new Error('Not authenticated');
+
+    const response = await authenticatedRequest<{ document: DBDocument }>(
+      `/api/documents/${documentId}`,
+      token,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }
+    );
+
+    if (response.error) throw new Error(response.error);
+    if (response.data) {
+      setDocuments(documents.map(d => 
+        d.id === documentId ? response.data!.document : d
+      ));
       return response.data.document;
     }
   };
@@ -269,6 +295,7 @@ export function useSchoolDocuments(schoolId: string | null) {
     error,
     refetch: fetchDocuments,
     createDocument,
+    updateDocument,
     deleteDocument,
   };
 }
