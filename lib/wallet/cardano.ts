@@ -183,6 +183,19 @@ export async function getWalletByOwnerId(ownerId: string): Promise<DBWallet | nu
 }
 
 /**
+ * Get wallet by owner ID and wallet role
+ */
+export async function getWalletByOwnerIdAndRole(
+  ownerId: string, 
+  walletRole: 'issuer' | 'holder' | 'system'
+): Promise<DBWallet | null> {
+  return await queryOne<DBWallet>(
+    'SELECT * FROM docq_mint_wallets WHERE owner_id = $1 AND wallet_role = $2',
+    [ownerId, walletRole]
+  );
+}
+
+/**
  * Load a MeshWallet instance from database
  */
 export async function loadWalletFromDatabase(
@@ -226,6 +239,78 @@ export async function loadWalletFromDatabase(
   } catch (error) {
     console.error('Error loading wallet from database:', error);
     return null;
+  }
+}
+
+/**
+ * Get wallet balance from blockchain using address
+ * @param address - Wallet address
+ * @param network - Network to query (mainnet or preprod)
+ * @returns Balance in lovelace (smallest unit of ADA, 1 ADA = 1,000,000 lovelace)
+ */
+export async function getWalletBalance(
+  address: string,
+  network: 'mainnet' | 'preprod' = 'preprod'
+): Promise<string> {
+  try {
+    const provider = createProvider(network);
+    
+    // Fetch UTXOs for the address
+    const utxos = await provider.fetchAddressUTxOs(address);
+    
+    // Calculate total balance by summing all UTXOs
+    let totalLovelace = BigInt(0);
+    
+    for (const utxo of utxos) {
+      // utxo.output.amount is an array of assets
+      // The first element is always lovelace
+      const lovelaceAmount = utxo.output.amount.find(
+        (asset) => asset.unit === 'lovelace'
+      );
+      
+      if (lovelaceAmount) {
+        totalLovelace += BigInt(lovelaceAmount.quantity);
+      }
+    }
+    
+    return totalLovelace.toString();
+  } catch (error) {
+    console.error('Error fetching wallet balance:', error);
+    throw new Error('Failed to fetch wallet balance from blockchain');
+  }
+}
+
+/**
+ * Get wallet balance using the wallet instance (from encrypted seed phrase)
+ * @param walletId - Database wallet ID
+ * @returns Balance in lovelace
+ */
+export async function getWalletBalanceById(walletId: string): Promise<string> {
+  try {
+    // Get wallet from database
+    const dbWallet = await queryOne<DBWallet>(
+      'SELECT * FROM docq_mint_wallets WHERE id = $1',
+      [walletId]
+    );
+    
+    if (!dbWallet) {
+      throw new Error('Wallet not found');
+    }
+    
+    // Load MeshWallet instance
+    const meshWallet = await loadWalletFromDatabase(walletId, dbWallet.network as 'mainnet' | 'preprod');
+    
+    if (!meshWallet) {
+      throw new Error('Failed to load wallet');
+    }
+    
+    // Get balance using MeshWallet
+    const lovelace = await meshWallet.getLovelace();
+    
+    return lovelace;
+  } catch (error) {
+    console.error('Error fetching wallet balance by ID:', error);
+    throw new Error('Failed to fetch wallet balance');
   }
 }
 
