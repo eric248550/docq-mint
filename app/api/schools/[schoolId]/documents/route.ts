@@ -32,23 +32,56 @@ export async function GET(
 
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get('student_id');
+    const onlyPublished = searchParams.get('only_published') === 'true';
 
-    let documents: DBDocument[];
+    let documents: (DBDocument & { is_published?: boolean })[];
     
     if (studentId) {
-      documents = await query<DBDocument>(
-        `SELECT * FROM docq_mint_documents 
-         WHERE school_id = $1 AND student_id = $2
-         ORDER BY created_at DESC`,
-        [schoolId, studentId]
-      );
+      if (onlyPublished) {
+        // For students: only show published/minted documents
+        documents = await query<DBDocument & { is_published: boolean }>(
+          `SELECT d.*, 
+                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+           FROM docq_mint_documents d
+           INNER JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
+           WHERE d.school_id = $1 AND d.student_id = $2
+           ORDER BY d.created_at DESC`,
+          [schoolId, studentId]
+        );
+      } else {
+        documents = await query<DBDocument & { is_published: boolean }>(
+          `SELECT d.*, 
+                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+           FROM docq_mint_documents d
+           LEFT JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
+           WHERE d.school_id = $1 AND d.student_id = $2
+           ORDER BY d.created_at DESC`,
+          [schoolId, studentId]
+        );
+      }
     } else {
-      documents = await query<DBDocument>(
-        `SELECT * FROM docq_mint_documents 
-         WHERE school_id = $1
-         ORDER BY created_at DESC`,
-        [schoolId]
-      );
+      if (onlyPublished) {
+        // For students: only show published/minted documents
+        documents = await query<DBDocument & { is_published: boolean }>(
+          `SELECT d.*, 
+                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+           FROM docq_mint_documents d
+           INNER JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
+           WHERE d.school_id = $1
+           ORDER BY d.created_at DESC`,
+          [schoolId]
+        );
+      } else {
+        documents = await query<DBDocument & { is_published: boolean }>(
+          `SELECT d.*, 
+                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+           FROM docq_mint_documents d
+           LEFT JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
+           WHERE d.school_id = $1
+           ORDER BY d.created_at DESC`,
+          [schoolId]
+        );
+      }
     }
 
     return NextResponse.json({ documents });

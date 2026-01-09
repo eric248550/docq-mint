@@ -52,6 +52,7 @@ export interface DBDocument {
   file_size_bytes: number | null;
   original_filename: string | null;
   created_at: Date;
+  is_published?: boolean; // Whether document is minted as NFT
 }
 
 export interface DBNFT {

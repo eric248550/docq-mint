@@ -15,11 +15,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Get all documents belonging to this student
-    const documents = await query<DBDocument>(
-      `SELECT * FROM docq_mint_documents 
-       WHERE student_id = $1
-       ORDER BY created_at DESC`,
+    // Get only published/minted documents belonging to this student
+    const documents = await query<DBDocument & { is_published: boolean }>(
+      `SELECT d.*, 
+              CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+       FROM docq_mint_documents d
+       INNER JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
+       WHERE d.student_id = $1
+       ORDER BY d.created_at DESC`,
       [dbUser.id]
     );
 

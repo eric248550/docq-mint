@@ -5,7 +5,7 @@ import { useSchoolDocuments, useSchoolMembers } from '@/hooks/useSchools';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download, UserPlus } from 'lucide-react';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle } from 'lucide-react';
 import { DBDocument } from '@/lib/db/types';
 
 interface DocumentsListProps {
@@ -516,9 +516,22 @@ function DocumentRow({ document, students, onDelete, onAssign }: DocumentRowProp
       <div className="flex items-center gap-3 flex-1">
         <FileText className="h-5 w-5 text-primary" />
         <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">
-            {document.original_filename || getDocumentTypeLabel(document.document_type)}
-          </p>
+          <div className="flex items-center gap-2 mb-1">
+            <p className="font-medium truncate">
+              {document.original_filename || getDocumentTypeLabel(document.document_type)}
+            </p>
+            {document.is_published ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                <CheckCircle2 className="h-3 w-3" />
+                Published
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
+                <Circle className="h-3 w-3" />
+                Unpublished
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {document.original_filename && (
               <>
