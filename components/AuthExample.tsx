@@ -24,12 +24,13 @@ export function AuthExample() {
     
     if (signUpError) {
       setError(signUpError)
+      setLoading(false)
     } else {
       setEmail('')
       setPassword('')
+      // Redirect to identity selection after successful signup
+      router.push('/identity')
     }
-    
-    setLoading(false)
   }
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -41,12 +42,13 @@ export function AuthExample() {
     
     if (signInError) {
       setError(signInError)
+      setLoading(false)
     } else {
       setEmail('')
       setPassword('')
+      // Redirect to identity selection after successful signin
+      router.push('/identity')
     }
-    
-    setLoading(false)
   }
 
   const handleGoogleSignIn = async () => {
@@ -57,9 +59,11 @@ export function AuthExample() {
     
     if (googleError) {
       setError(googleError)
+      setLoading(false)
+    } else {
+      // Redirect to identity selection after successful Google signin
+      router.push('/identity')
     }
-    
-    setLoading(false)
   }
 
   const handleLogout = async () => {

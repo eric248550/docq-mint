@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractFirebaseToken, verifyFirebaseToken } from '@/lib/auth/firebase-admin';
 import { query, queryOne } from '@/lib/db/config';
 import { DBUser, DBSchoolMembership } from '@/lib/db/types';
+import { createWalletForOwner } from '@/lib/wallet/cardano';
 
 export interface AuthContext {
   firebaseUid: string;
@@ -49,6 +50,14 @@ export async function withAuth(
         [firebaseUser.uid, firebaseUser.email || null, 'user']
       );
       dbUser = rows[0];
+
+      // Create wallet for user (holder role)
+      const network = process.env.CARDANO_NETWORK === 'mainnet' ? 'mainnet' : 'preprod';
+      const wallet = await createWalletForOwner(dbUser.id, 'holder', network as 'mainnet' | 'preprod');
+      
+      if (!wallet) {
+        console.error('Failed to create wallet for user, but continuing with user creation');
+      }
 
       // Claim any pending invitations for this email
       if (firebaseUser.email) {

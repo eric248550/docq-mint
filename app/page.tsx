@@ -24,12 +24,12 @@ export default function Home() {
           </div>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
-            <Link href="/dashboard">
+            <Link href="/auth">
               <Button size="lg" className="text-lg px-8 py-6">
                 Get Started <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-            <Link href="/identity">
+            <Link href="/auth">
               <Button size="lg" variant="outline" className="text-lg px-8 py-6">
                 Sign In
               </Button>

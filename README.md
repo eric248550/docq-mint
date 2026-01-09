@@ -6,6 +6,7 @@ Academic document management and verification system for schools and students.
 
 - **Firebase Authentication** - Email/Password and Google Sign-in
 - **School Management** - Create and manage schools with role-based access
+- **Cardano Wallet Integration** - Automatic wallet creation for schools and users
 - **Document Upload** - Secure AWS S3 storage with file hashing
 - **Student Portal** - Students can view and download their documents
 - **Member Management** - Invite students and manage school memberships
@@ -16,6 +17,7 @@ Academic document management and verification system for schools and students.
 - PostgreSQL database (Heroku or similar)
 - Firebase project
 - AWS S3 bucket
+- Blockfrost API key (for Cardano blockchain access)
 
 ## 🛠️ Setup
 
@@ -41,6 +43,10 @@ Academic document management and verification system for schools and students.
    - Firebase configuration (from Firebase Console)
    - `DATABASE_URL` - PostgreSQL connection string
    - AWS S3 credentials (region, access key, secret, bucket name)
+   - Cardano configuration:
+     - `CARDANO_NETWORK` - 'mainnet' or 'preprod'
+     - `BLOCKFROST_API_KEY` - Get from https://blockfrost.io
+     - `SEED_ENCRYPT_KEY` - 32-character encryption key for seed phrases
 
 4. **Set up database**
    
@@ -89,7 +95,8 @@ Academic document management and verification system for schools and students.
 │   ├── auth/        # Firebase auth utilities
 │   ├── db/          # Database utilities
 │   ├── firebase/    # Firebase config
-│   └── s3/          # S3 utilities
+│   ├── s3/          # S3 utilities
+│   └── wallet/      # Cardano wallet utilities
 ├── store/           # Zustand state management
 └── schema.sql       # Database schema
 ```
@@ -107,8 +114,9 @@ Academic document management and verification system for schools and students.
 
 ## 📚 Documentation
 
-- [IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md) - Detailed implementation guide
+- [WALLET_SETUP.md](./WALLET_SETUP.md) - Cardano wallet integration guide
 - [REQUIREMENT.md](./REQUIREMENT.md) - Product requirements
+- [QUICK_START.md](./QUICK_START.md) - Quick start guide
 - [schema.sql](./schema.sql) - Database schema
 
 ## 🧪 Testing
@@ -132,6 +140,7 @@ npm test
 - **Authentication**: Firebase Auth
 - **Database**: PostgreSQL
 - **Storage**: AWS S3
+- **Blockchain**: Cardano (via Mesh SDK)
 - **State Management**: Zustand
 - **UI Components**: Shadcn/ui, Radix UI
 
@@ -160,16 +169,19 @@ npm test
 - `DELETE /api/documents/:id` - Delete document
 - `GET /api/students/documents` - Student's documents
 
+### Wallets
+- `GET /api/wallets/:ownerId` - Get wallet information
+
 ## 🚫 Out of Scope
 
-The following features are explicitly excluded from this MVP:
+The following features are planned for future releases:
 
-- Blockchain/NFT minting
+- NFT minting UI
 - Email delivery
-- Wallet management UI
-- Advanced role-based permissions
+- Advanced wallet management UI
 - Document encryption
 - Multi-factor authentication
+- Advanced analytics
 
 ## 📄 License
 
