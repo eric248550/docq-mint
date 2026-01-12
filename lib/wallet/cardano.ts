@@ -1,4 +1,4 @@
-import { MeshWallet, BlockfrostProvider } from '@meshsdk/core';
+import { MeshWallet, BlockfrostProvider, resolveScriptHash } from '@meshsdk/core';
 import { query, queryOne } from '@/lib/db/config';
 import crypto from 'crypto';
 
@@ -214,9 +214,18 @@ export async function loadWalletFromDatabase(
       return null;
     }
     
+    console.log(`🔐 Loading wallet: ${walletId}`);
+    console.log(`   Network: ${network}`);
+    console.log(`   Expected address: ${wallet.address}`);
+    
     // Decrypt seed phrase
     const mnemonicString = decryptSeedPhrase(wallet.encrypted_seed_phrase);
     const mnemonic = mnemonicString.split(' ');
+    
+    // Validate mnemonic
+    if (mnemonic.length !== 24 && mnemonic.length !== 12 && mnemonic.length !== 15) {
+      throw new Error(`Invalid mnemonic length: ${mnemonic.length} words. Expected 12, 15, or 24 words.`);
+    }
     
     // Create provider
     const provider = createProvider(network);
@@ -233,7 +242,22 @@ export async function loadWalletFromDatabase(
       },
     });
     
+    // Initialize wallet cryptography
     await meshWallet.init();
+    
+    // Verify wallet address matches
+    try {
+      const loadedAddress = await meshWallet.getChangeAddress();
+      if (loadedAddress !== wallet.address) {
+        console.warn(`⚠️  Loaded address doesn't match stored address`);
+        console.warn(`   Stored: ${wallet.address}`);
+        console.warn(`   Loaded: ${loadedAddress}`);
+      } else {
+        console.log(`✅ Wallet loaded successfully: ${loadedAddress}`);
+      }
+    } catch (err) {
+      console.error('Error verifying wallet address:', err);
+    }
     
     return meshWallet;
   } catch (error) {
@@ -311,6 +335,148 @@ export async function getWalletBalanceById(walletId: string): Promise<string> {
   } catch (error) {
     console.error('Error fetching wallet balance by ID:', error);
     throw new Error('Failed to fetch wallet balance');
+  }
+}
+
+/**
+ * Mint NFTs for documents
+ */
+export async function mintDocuments(params: {
+  custodyWalletId: string;
+  documents: Array<{
+    id: string;
+    file_hash: string;
+    document_type: string;
+    original_filename: string | null;
+    student_id: string | null;
+  }>;
+  schoolInfo: {
+    id: string;
+    name: string;
+    country_code: string | null;
+  };
+  network: 'mainnet' | 'preprod';
+}): Promise<{
+  txHash: string;
+  nfts: Array<{
+    documentId: string;
+    assetName: string;
+    policyId: string;
+    metadata: any;
+  }>;
+}> {
+  const { Transaction, ForgeScript } = await import('@meshsdk/core');
+  
+  try {
+    // Load custody wallet
+    const meshWallet = await loadWalletFromDatabase(params.custodyWalletId, params.network);
+    
+    if (!meshWallet) {
+      throw new Error('Failed to load custody wallet');
+    }
+    
+    // Get wallet address - use getUsedAddresses()[0] or getChangeAddress()
+    let walletAddress: string;
+    try {
+      // Try to get the change address first
+      walletAddress = await meshWallet.getChangeAddress();
+      
+      // Validate address is a non-empty string
+      if (!walletAddress || typeof walletAddress !== 'string' || walletAddress.trim() === '') {
+        console.warn('getChangeAddress() returned invalid value, trying getUsedAddresses()');
+        const usedAddresses = await meshWallet.getUsedAddresses();
+        walletAddress = usedAddresses[0];
+      }
+      
+      // Final validation
+      if (!walletAddress || typeof walletAddress !== 'string' || walletAddress.trim() === '') {
+        throw new Error('Unable to retrieve valid wallet address from MeshWallet');
+      }
+      
+      // Validate it's a Cardano address (starts with addr or addr_test)
+      if (!walletAddress.startsWith('addr')) {
+        throw new Error(`Invalid Cardano address format: ${walletAddress}`);
+      }
+      
+      console.log(`✅ Using wallet address: ${walletAddress}`);
+    } catch (addressError) {
+      console.error('Error getting wallet address:', addressError);
+      throw new Error(`Failed to get wallet address: ${addressError instanceof Error ? addressError.message : 'Unknown error'}`);
+    }
+    
+    // Create forging script
+    const forgingScript = ForgeScript.withOneSignature(walletAddress);
+    // Get policy ID
+    const policyId = resolveScriptHash(forgingScript);
+    
+    // Create transaction
+    const tx = new Transaction({ initiator: meshWallet });
+    
+    // Prepare NFTs array for return
+    const nfts: Array<{
+      documentId: string;
+      assetName: string;
+      policyId: string;
+      metadata: any;
+    }> = [];
+    
+    // Mint each document
+    for (const doc of params.documents) {
+      // Generate asset name (use document ID as base)
+      const assetName = `DOCQ${doc.id.replace(/-/g, '').substring(0, 20)}`;
+      
+      // Prepare metadata
+      const metadata = {
+        name: doc.original_filename || `${doc.document_type} Document`,
+        description: `Academic document issued by ${params.schoolInfo.name}`,
+        image: 'ipfs://Qmd3bSqZ9xUXYdfbd6xnBoM8T76E2obSyDXYG9Qjh8S2rP', // TODO: Replace with DOCQ-mint NFT image
+        mediaType: 'application/pdf',
+        files: [{
+          name: doc.original_filename || 'document.pdf',
+          mediaType: 'application/pdf',
+          src: doc.file_hash,
+        }],
+        // Custom attributes
+        attributes: {
+          documentType: doc.document_type,
+          fileHash: doc.file_hash,
+          issuer: params.schoolInfo.name,
+          issuerId: params.schoolInfo.id,
+          countryCode: params.schoolInfo.country_code || 'N/A',
+          issuedDate: new Date().toISOString(),
+          documentId: doc.id,
+        },
+      };
+      
+      // Add to minting transaction
+      tx.mintAsset(forgingScript, {
+        assetName,
+        assetQuantity: '1',
+        metadata,
+        label: '721',
+        recipient: walletAddress, // Custody wallet holds the NFT
+      });
+      
+      nfts.push({
+        documentId: doc.id,
+        assetName,
+        policyId,
+        metadata,
+      });
+    }
+    
+    // Build, sign, and submit transaction
+    const unsignedTx = await tx.build();
+    const signedTx = await meshWallet.signTx(unsignedTx, false);
+    const txHash = await meshWallet.submitTx(signedTx);
+    
+    return {
+      txHash,
+      nfts,
+    };
+  } catch (error) {
+    console.error('Error minting documents:', error);
+    throw error;
   }
 }
 
