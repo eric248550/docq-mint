@@ -148,8 +148,8 @@ Called automatically by QStash for bulk operations.
 Add these to your `.env.local` file:
 
 ```bash
-# QStash Configuration (for bulk minting)
-QSTASH_URL=http://localhost:8080
+# QStash Configuration (for minting)
+QSTASH_URL="https://qstash.upstash.io"
 QSTASH_TOKEN=your_token_here
 QSTASH_CURRENT_SIGNING_KEY=your_current_key
 QSTASH_NEXT_SIGNING_KEY=your_next_key

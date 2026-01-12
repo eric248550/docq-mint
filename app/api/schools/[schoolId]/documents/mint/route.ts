@@ -126,6 +126,16 @@ export async function POST(
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
       const webhookUrl = `${baseUrl}/api/schools/${schoolId}/documents/mint/process`;
       
+      // Validate webhook URL is publicly accessible
+      if (webhookUrl.includes('localhost') && !process.env.QSTASH_URL?.includes('localhost')) {
+        return NextResponse.json(
+          { error: 'Production QStash requires a publicly accessible webhook URL. Please set NEXT_PUBLIC_APP_URL environment variable.' },
+          { status: 500 }
+        );
+      }
+      
+      console.log(`📤 Queuing minting job to: ${webhookUrl}`);
+      
       await qstashClient.publishJSON({
         url: webhookUrl,
         body: {
@@ -148,7 +158,7 @@ export async function POST(
       console.error('Failed to mint documents:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return NextResponse.json(
-        { error: `Failed to mint documents: ${errorMessage}` },
+        { error: `Failed to publish documents: ${errorMessage}` },
         { status: 500 }
       );
     }

@@ -51,14 +51,13 @@ async function verifyTransactionOnChain(
  * Process queued minting job (called by QStash webhook)
  */
 async function handler(
-  request: NextRequest,
+  body: any,
   { params }: { params: { schoolId: string } }
 ) {
   let txHash: string | null = null;
   let pendingNFTIds: string[] = [];
 
   try {
-    const body = await request.json();
     const { schoolId, documentIds, custodyWalletId, network, pendingNFTIds: nftIds } = body;
     pendingNFTIds = nftIds || [];
 
@@ -205,8 +204,63 @@ async function handler(
   }
 }
 
-// Export the handler directly
-// Note: For production, consider implementing QStash signature verification
-// using the verifySignature middleware from @upstash/qstash
-export const POST = handler;
+
+/**
+ * POST handler with signature verification
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { schoolId: string } }
+) {
+  // Read the body once
+  const bodyText = await request.text();
+  
+  // Verify QStash signature (if not in local mode)
+  if (!process.env.QSTASH_URL?.includes('localhost')) {
+    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
+
+    if (!currentSigningKey || !nextSigningKey) {
+      return NextResponse.json(
+        { error: 'QStash signing keys not configured' },
+        { status: 500 }
+      );
+    }
+
+    try {
+      const { Receiver } = await import('@upstash/qstash');
+      const receiver = new Receiver({
+        currentSigningKey,
+        nextSigningKey,
+      });
+
+      const signature = request.headers.get('upstash-signature');
+      if (!signature) {
+        return NextResponse.json(
+          { error: 'Missing upstash-signature header' },
+          { status: 401 }
+        );
+      }
+
+      await receiver.verify({
+        signature,
+        body: bodyText,
+      });
+
+      console.log('✅ QStash signature verified');
+    } catch (error) {
+      console.error('❌ QStash signature verification failed:', error);
+      return NextResponse.json(
+        { error: 'Invalid webhook signature' },
+        { status: 401 }
+      );
+    }
+  } else {
+    console.log('🔓 Local mode: Skipping signature verification');
+  }
+
+  // Parse body and call handler
+  const body = JSON.parse(bodyText);
+  return handler(body, { params });
+}
 
