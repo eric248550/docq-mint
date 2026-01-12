@@ -51,8 +51,9 @@ export interface DBDocument {
   file_mime_type: string | null;
   file_size_bytes: number | null;
   original_filename: string | null;
+  issued_at: Date | null;             // Source of truth: when document was issued as NFT
   created_at: Date;
-  is_published?: boolean; // Whether document is minted as NFT
+  is_published?: boolean;              // Computed: issued_at IS NOT NULL
 }
 
 export interface DBNFT {

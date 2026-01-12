@@ -71,19 +71,39 @@ export async function POST(
         return NextResponse.json({ error: 'Custody wallet not found' }, { status: 404 });
       }
 
-      // Get documents to mint
+      // CRITICAL: Use issued_at as source of truth to prevent double-minting
+      // Atomically mark documents as issued and retrieve them in one query
+      // This prevents race condition if user clicks "Publish" twice
       const documents = await query<DBDocument>(
-        `SELECT d.* FROM docq_mint_documents d
-         LEFT JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
-         WHERE d.id = ANY($1) 
-         AND d.school_id = $2
-         AND n.id IS NULL`,
+        `UPDATE docq_mint_documents
+         SET issued_at = now()
+         WHERE id = ANY($1) 
+         AND school_id = $2
+         AND issued_at IS NULL
+         RETURNING *`,
         [documentIds, schoolId]
       );
 
       if (documents.length === 0) {
+        // Check if documents were already issued
+        const alreadyIssued = await query<{ id: string; issued_at: Date }>(
+          `SELECT id, issued_at FROM docq_mint_documents
+           WHERE id = ANY($1) AND school_id = $2 AND issued_at IS NOT NULL`,
+          [documentIds, schoolId]
+        );
+
+        if (alreadyIssued.length > 0) {
+          return NextResponse.json(
+            { 
+              error: 'Documents have already been issued',
+              issuedDocuments: alreadyIssued 
+            },
+            { status: 409 } // Conflict
+          );
+        }
+
         return NextResponse.json(
-          { error: 'No unminted documents found with provided IDs' },
+          { error: 'No documents found with provided IDs' },
           { status: 400 }
         );
       }

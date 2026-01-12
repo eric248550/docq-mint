@@ -78,6 +78,7 @@ CREATE TABLE docq_mint_documents (
   file_size_bytes   BIGINT,
   original_filename TEXT,                    -- Original filename from upload
 
+  issued_at         TIMESTAMPTZ,             -- When document was issued as NFT (source of truth)
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

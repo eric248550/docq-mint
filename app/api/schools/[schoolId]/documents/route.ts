@@ -36,24 +36,24 @@ export async function GET(
 
     let documents: (DBDocument & { is_published?: boolean })[];
     
+    // Use issued_at as source of truth (not NFT status)
     if (studentId) {
       if (onlyPublished) {
-        // For students: only show published/minted documents
+        // For students: only show issued documents
         documents = await query<DBDocument & { is_published: boolean }>(
           `SELECT d.*, 
-                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+                  CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
            FROM docq_mint_documents d
-           INNER JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
            WHERE d.school_id = $1 AND d.student_id = $2
+           AND d.issued_at IS NOT NULL
            ORDER BY d.created_at DESC`,
           [schoolId, studentId]
         );
       } else {
         documents = await query<DBDocument & { is_published: boolean }>(
           `SELECT d.*, 
-                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+                  CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
            FROM docq_mint_documents d
-           LEFT JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
            WHERE d.school_id = $1 AND d.student_id = $2
            ORDER BY d.created_at DESC`,
           [schoolId, studentId]
@@ -61,22 +61,21 @@ export async function GET(
       }
     } else {
       if (onlyPublished) {
-        // For students: only show published/minted documents
+        // For students: only show issued documents
         documents = await query<DBDocument & { is_published: boolean }>(
           `SELECT d.*, 
-                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+                  CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
            FROM docq_mint_documents d
-           INNER JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
            WHERE d.school_id = $1
+           AND d.issued_at IS NOT NULL
            ORDER BY d.created_at DESC`,
           [schoolId]
         );
       } else {
         documents = await query<DBDocument & { is_published: boolean }>(
           `SELECT d.*, 
-                  CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+                  CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
            FROM docq_mint_documents d
-           LEFT JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
            WHERE d.school_id = $1
            ORDER BY d.created_at DESC`,
           [schoolId]

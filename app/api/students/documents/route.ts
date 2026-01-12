@@ -15,13 +15,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Get only published/minted documents belonging to this student
+    // Get only issued documents belonging to this student
+    // issued_at is the source of truth (not NFT status)
     const documents = await query<DBDocument & { is_published: boolean }>(
       `SELECT d.*, 
-              CASE WHEN n.id IS NOT NULL THEN true ELSE false END as is_published
+              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
        FROM docq_mint_documents d
-       INNER JOIN docq_mint_nfts n ON d.id = n.document_id AND n.status = 'minted'
        WHERE d.student_id = $1
+       AND d.issued_at IS NOT NULL
        ORDER BY d.created_at DESC`,
       [dbUser.id]
     );
