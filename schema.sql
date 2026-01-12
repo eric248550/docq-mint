@@ -90,16 +90,16 @@ CREATE TABLE docq_mint_nfts (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   document_id        UUID NOT NULL REFERENCES docq_mint_documents(id),          -- off-chain source
-  policy_id          TEXT NOT NULL,
-  asset_name         TEXT NOT NULL,
-  metadata           JSONB NOT NULL,         -- metadata for the NFT
-  metadata_hash      TEXT NOT NULL,           -- metadata hash
+  policy_id          TEXT,                    -- set after minting
+  asset_name         TEXT,                    -- set after minting
+  metadata           JSONB NOT NULL,          -- metadata for the NFT
+  metadata_hash      TEXT,                    -- metadata hash
 
-  tx_hash            TEXT NOT NULL,           -- transaction hash
-  ipfs_hash          TEXT,           -- ipfs hash
+  tx_hash            TEXT,                    -- transaction hash (set after minting)
+  ipfs_hash          TEXT,                    -- ipfs hash
 
   custody_wallet_id  UUID REFERENCES docq_mint_wallets(id),
-  status             TEXT NOT NULL,           -- minted | burned | transferred | pending
+  status             TEXT NOT NULL,           -- pending | minted | failed | burned | transferred
 
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()

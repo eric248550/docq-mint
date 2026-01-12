@@ -5,7 +5,7 @@ import { useSchoolDocuments, useSchoolMembers } from '@/hooks/useSchools';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle } from 'lucide-react';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket } from 'lucide-react';
 import { DBDocument } from '@/lib/db/types';
 
 interface DocumentsListProps {
@@ -14,9 +14,10 @@ interface DocumentsListProps {
 }
 
 export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
-  const { documents, isLoading, error, createDocument, updateDocument, deleteDocument } = useSchoolDocuments(schoolId);
+  const { documents, isLoading, error, createDocument, updateDocument, deleteDocument, refetch } = useSchoolDocuments(schoolId);
   const { members } = useSchoolMembers(schoolId);
   const { uploadFile, progress, reset } = useS3Upload();
+  const { getAuthToken } = useAuthStore();
   
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -26,11 +27,16 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     document_type: 'report_card',
   });
   const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
+  const [isMinting, setIsMinting] = useState(false);
+  const [mintingDocId, setMintingDocId] = useState<string | null>(null);
 
   // Only show students who have actually signed up (user_id is not null)
   const students = members.filter(m => m.role === 'student' && m.user_id !== null);
   
   const isUploading = progress.status === 'uploading' || uploadingFiles.size > 0;
+  
+  // Get unminted documents
+  const unmintedDocuments = documents.filter(doc => !doc.is_published);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -186,6 +192,69 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     }
   };
 
+  const handleMintDocuments = async (documentIds: string[]) => {
+    if (documentIds.length === 0) {
+      alert('No documents to publish');
+      return;
+    }
+
+    const confirmMessage = documentIds.length === 1
+      ? 'Are you sure you want to publish this document to the blockchain? This action cannot be undone.'
+      : `Are you sure you want to publish ${documentIds.length} documents to the blockchain? This action cannot be undone.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    setIsMinting(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch(`/api/schools/${schoolId}/documents/mint`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ documentIds }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to publish documents');
+      }
+
+      const result = await response.json();
+      
+      alert(
+        `Publishing job queued for ${result.documentCount} document(s)!\n\n` +
+        `The minting process is running in the background and will be confirmed on the blockchain.\n\n` +
+        `Please refresh the page in a few minutes to see the updated status.`
+      );
+      
+      // Refetch documents to update UI
+      await refetch();
+    } catch (error) {
+      console.error('Failed to publish documents:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to publish documents: ${errorMessage}`);
+    } finally {
+      setIsMinting(false);
+      setMintingDocId(null);
+    }
+  };
+
+  const handleMintAll = async () => {
+    const unmintedIds = unmintedDocuments.map(doc => doc.id);
+    await handleMintDocuments(unmintedIds);
+  };
+
+  const handleMintSingle = async (documentId: string) => {
+    setMintingDocId(documentId);
+    await handleMintDocuments([documentId]);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -209,10 +278,32 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Documents ({documents.length})</h3>
         {!limit && (
-          <Button onClick={() => setShowUploadForm(!showUploadForm)} size="sm">
-            <Upload className="h-4 w-4 mr-2" />
-            Upload Document
-          </Button>
+          <div className="flex gap-2">
+            {unmintedDocuments.length > 0 && (
+              <Button 
+                onClick={handleMintAll} 
+                size="sm"
+                variant="default"
+                disabled={isMinting}
+              >
+                {isMinting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Publishing...
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="h-4 w-4 mr-2" />
+                    Publish All ({unmintedDocuments.length})
+                  </>
+                )}
+              </Button>
+            )}
+            <Button onClick={() => setShowUploadForm(!showUploadForm)} size="sm" variant="outline">
+              <Upload className="h-4 w-4 mr-2" />
+              Upload Document
+            </Button>
+          </div>
         )}
       </div>
 
@@ -396,6 +487,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               students={students}
               onDelete={!limit ? handleDelete : undefined}
               onAssign={!limit ? updateDocument : undefined}
+              onMint={!limit ? handleMintSingle : undefined}
+              isMinting={mintingDocId === doc.id}
             />
           ))}
         </div>
@@ -415,9 +508,11 @@ interface DocumentRowProps {
   students: Array<{ id: string; user_id: string | null; email: string | null; role: string }>;
   onDelete?: (id: string) => void;
   onAssign?: (documentId: string, data: { student_id?: string | null }) => Promise<any>;
+  onMint?: (documentId: string) => Promise<void>;
+  isMinting?: boolean;
 }
 
-function DocumentRow({ document, students, onDelete, onAssign }: DocumentRowProps) {
+function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting }: DocumentRowProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -596,6 +691,21 @@ function DocumentRow({ document, students, onDelete, onAssign }: DocumentRowProp
               </div>
             )}
           </div>
+        )}
+        {onMint && !document.is_published && (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => onMint(document.id)}
+            disabled={isMinting}
+            title="Publish to blockchain"
+          >
+            {isMinting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="h-4 w-4" />
+            )}
+          </Button>
         )}
         <Button
           variant="ghost"
