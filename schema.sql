@@ -122,3 +122,27 @@ CREATE TABLE docq_mint_claims (
   submit_tx_id      TEXT,
   submit_timestamp TIMESTAMPTZ
 );
+
+-- ------------------------------------------------------------
+-- VERIFICATION TOKENS TABLE
+-- ------------------------------------------------------------ 
+CREATE TABLE docq_mint_verification_tokens (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id       UUID NOT NULL REFERENCES docq_mint_documents(id),
+  token             TEXT NOT NULL UNIQUE,
+  created_by        UUID REFERENCES docq_mint_users(id),
+  expires_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ------------------------------------------------------------
+-- VERIFICATION ACCESS TABLE
+-- ------------------------------------------------------------ 
+CREATE TABLE docq_mint_verification_access (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_id          UUID NOT NULL REFERENCES docq_mint_verification_tokens(id),
+  verifier_email    TEXT,
+  payment_status    TEXT NOT NULL DEFAULT 'pending', -- pending | paid
+  payment_amount    DECIMAL(10, 2),
+  accessed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);

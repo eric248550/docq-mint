@@ -83,6 +83,24 @@ export interface DBClaim {
   submit_timestamp: Date | null;
 }
 
+export interface DBVerificationToken {
+  id: string;
+  document_id: string;
+  token: string;
+  created_by: string | null;
+  expires_at: Date | null;
+  created_at: Date;
+}
+
+export interface DBVerificationAccess {
+  id: string;
+  token_id: string;
+  verifier_email: string | null;
+  payment_status: string;
+  payment_amount: number | null;
+  accessed_at: Date;
+}
+
 // API types
 export type UserRole = 'admin' | 'user';
 export type SchoolMembershipRole = 'owner' | 'admin' | 'viewer' | 'student' | 'parent';
@@ -91,4 +109,5 @@ export type DocumentType = 'report_card' | 'transcript' | 'certificate' | 'diplo
 export type IdentityContext = 'student' | 'school_admin';
 export type WalletRole = 'issuer' | 'holder' | 'system';
 export type CardanoNetwork = 'mainnet' | 'preprod';
+export type PaymentStatus = 'pending' | 'paid';
 
