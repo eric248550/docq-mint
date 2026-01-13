@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { 
@@ -36,7 +36,7 @@ interface ComparisonResult {
   fileSize: number;
 }
 
-export default function VerifyPage() {
+function VerifyPageContent() {
   const searchParams = useSearchParams();
   const tokenFromUrl = searchParams.get('token');
 
@@ -51,13 +51,16 @@ export default function VerifyPage() {
   const [verifierEmail, setVerifierEmail] = useState('');
   const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [hasAutoLoaded, setHasAutoLoaded] = useState(false);
 
   // Auto-load if token is in URL
   useEffect(() => {
-    if (tokenFromUrl && !documentInfo) {
+    if (tokenFromUrl && !documentInfo && !hasAutoLoaded) {
+      setHasAutoLoaded(true);
       handleVerify();
     }
-  }, [tokenFromUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenFromUrl, documentInfo, hasAutoLoaded]);
 
   const extractToken = (input: string): string => {
     const trimmed = input.trim();
@@ -506,3 +509,17 @@ export default function VerifyPage() {
   );
 }
 
+export default function VerifyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background p-8 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
+          <p className="text-muted-foreground">Loading verification page...</p>
+        </div>
+      </div>
+    }>
+      <VerifyPageContent />
+    </Suspense>
+  );
+}
