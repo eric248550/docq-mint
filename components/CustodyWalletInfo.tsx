@@ -231,7 +231,7 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
         {/* Help Text */}
         <div className="text-xs text-muted-foreground bg-background/50 p-3 rounded-md">
           💡 <strong>Tip:</strong> Copy the wallet address above to send ADA to this custody wallet. 
-          The school uses this wallet to mint and manage NFTs for student documents.
+          The organization uses this wallet to mint and manage NFTs for documents.
         </div>
       </div>
     </div>

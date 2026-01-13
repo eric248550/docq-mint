@@ -83,7 +83,7 @@ export default function CreateSchoolPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="name" className="block text-sm font-medium mb-2">
-                School Name *
+                Organization Name *
               </label>
               <input
                 id="name"
@@ -91,7 +91,7 @@ export default function CreateSchoolPage() {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="Enter school name"
+                placeholder="Enter organization name"
                 required
                 disabled={isSubmitting}
               />

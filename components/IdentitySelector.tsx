@@ -117,20 +117,20 @@ export function IdentitySelector() {
                 <Building2 className="h-6 w-6 text-primary" />
               </div>
               <div className="flex-1">
-                <h3 className="text-xl font-semibold mb-2">School Administrator</h3>
+                <h3 className="text-xl font-semibold mb-2">Organization Administrator</h3>
                 <p className="text-muted-foreground mb-4">
-                  Manage schools, upload documents, and invite students
+                  Manage organizations, upload documents, and invite users
                 </p>
                 
                 {selectedContext === 'school_admin' && (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Select School:</label>
+                    <label className="text-sm font-medium">Select Organization:</label>
                     <select
                       value={selectedSchoolId || ''}
                       onChange={(e) => setSelectedSchoolId(e.target.value)}
                       className="w-full px-3 py-2 border rounded-md bg-background"
                     >
-                      <option value="">Select a school...</option>
+                      <option value="">Select an organization...</option>
                       {memberships
                         .filter(m => ['owner', 'admin'].includes(m.role))
                         .map(m => (
@@ -169,13 +169,13 @@ export function IdentitySelector() {
                 
                 {selectedContext === 'student' && (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Select School:</label>
+                    <label className="text-sm font-medium">Select Organization:</label>
                     <select
                       value={selectedSchoolId || ''}
                       onChange={(e) => setSelectedSchoolId(e.target.value)}
                       className="w-full px-3 py-2 border rounded-md bg-background"
                     >
-                      <option value="">Select a school...</option>
+                      <option value="">Select an organization...</option>
                       {memberships
                         .filter(m => m.role === 'student')
                         .map(m => (
@@ -200,7 +200,7 @@ export function IdentitySelector() {
             size="lg"
             className="w-full"
           >
-            Continue as {selectedContext === 'student' ? 'Student' : 'School Admin'}
+            Continue as {selectedContext === 'student' ? 'User' : 'Organization Admin'}
           </Button>
         </div>
       )}

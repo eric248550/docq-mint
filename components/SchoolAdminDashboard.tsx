@@ -16,7 +16,7 @@ export function SchoolAdminDashboard() {
   if (!selectedSchoolId) {
     return (
       <div className="text-center p-8">
-        <p className="text-muted-foreground">No school selected</p>
+        <p className="text-muted-foreground">No organization selected</p>
       </div>
     );
   }

@@ -47,7 +47,7 @@ export default function DashboardPage() {
       <div className="border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold">
-            DOCQ Mint - {identityContext === 'student' ? 'Student Portal' : 'School Admin'}
+            DOCQ Mint - {identityContext === 'student' ? 'User Portal' : 'Organization Portal'}
           </h1>
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleChangeIdentity}>
