@@ -115,8 +115,7 @@ export default function Home() {
         <div className="max-w-4xl mx-auto text-center space-y-8">
           <h2 className="text-4xl md:text-5xl font-bold">Ready To Get Started?</h2>
           <p className="text-xl text-muted-foreground leading-relaxed">
-            Join us in building the future of secure, verifiable academic credentials. 
-            Whether you&apos;re a school administrator or a student, we&apos;re here to help.
+          Secure the future of your records and credentials, today.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
             <Link href="/auth">
