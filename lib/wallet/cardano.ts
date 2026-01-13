@@ -428,7 +428,7 @@ export async function mintDocuments(params: {
       // Prepare metadata
       const metadata = {
         name: doc.original_filename || `${doc.document_type} Document`,
-        description: `Academic document issued by ${params.schoolInfo.name}`,
+        description: `Document issued by ${params.schoolInfo.name}`,
         image: 'ipfs://Qmd3bSqZ9xUXYdfbd6xnBoM8T76E2obSyDXYG9Qjh8S2rP', // TODO: Replace with DOCQ-mint NFT image
         mediaType: 'application/pdf',
         files: [{

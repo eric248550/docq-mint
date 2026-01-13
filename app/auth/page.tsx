@@ -34,9 +34,9 @@ export default function AuthPage() {
     <main className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-background to-muted/20">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2">Welcome to DOCQ Mint</h1>
+          <h1 className="text-4xl font-bold mb-2">Welcome to DOCQ-Mint</h1>
           <p className="text-muted-foreground">
-            Sign in to manage your academic credentials
+            Sign in to manage your records and credentials
           </p>
         </div>
         

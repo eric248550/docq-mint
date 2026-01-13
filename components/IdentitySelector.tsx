@@ -76,18 +76,18 @@ export function IdentitySelector() {
       <div className="text-center p-8 max-w-md mx-auto">
         <div className="mb-6">
           <Building2 className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-          <h2 className="text-2xl font-bold mb-2">Welcome to DOCQ Mint</h2>
+          <h2 className="text-2xl font-bold mb-2">Welcome to DOCQ-Mint</h2>
           <p className="text-muted-foreground">
-            You don&apos;t have any school memberships yet.
+            You don&apos;t have any organizations yet.
           </p>
         </div>
         <div className="space-y-3">
           <Button onClick={() => router.push('/schools/create')} className="w-full">
             <Building2 className="mr-2 h-4 w-4" />
-            Create a School
+            Create a Organization
           </Button>
           <p className="text-sm text-muted-foreground">
-            Or wait for a school administrator to invite you as a student or member.
+          Or wait for an administrator to invite you as a member or user.
           </p>
         </div>
       </div>
@@ -164,7 +164,7 @@ export function IdentitySelector() {
               <div className="flex-1">
                 <h3 className="text-xl font-semibold mb-2">Student</h3>
                 <p className="text-muted-foreground mb-4">
-                  View your academic documents and records
+                  View your documents and records
                 </p>
                 
                 {selectedContext === 'student' && (

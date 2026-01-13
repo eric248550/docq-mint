@@ -12,14 +12,15 @@ export default function Home() {
         <div className="max-w-6xl w-full text-center space-y-8">
           <div className="space-y-6">
             <h1 className="text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-              UpGrades by DocQ-Mint
+            DocQ-Mint
             </h1>
             <p className="text-2xl md:text-3xl font-semibold text-foreground">
-            Blockchain Powered Record Issuance and Verification
+            Blockchain Secured, Verifiable Records
             </p>
             <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-              Making records secure, verifiable, and accessible for life. 
-              We combine user-friendly design with enterprise-grade security.
+            Making secure records verifiable and accessible permanently.
+            User friendly design, with enterprise-grade security. 
+
             </p>
           </div>
           
@@ -55,9 +56,9 @@ export default function Home() {
               <div className="p-4 bg-primary/10 rounded-lg w-fit">
                 <Building2 className="h-8 w-8 text-primary" />
               </div>
-              <h3 className="text-xl font-semibold">Admin Management</h3>
+              <h3 className="text-xl font-semibold">Admin management</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Create and manage schools, invite students, and organize documents efficiently with our intuitive platform.
+              Create and manage user-accessible records, all organized on our intuitive platform. 
               </p>
             </div>
 
@@ -67,7 +68,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-semibold">Secure Documents</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Tamper-proof, blockchain-verified academic records with enterprise-grade security and reliability.
+              Tamper-proof, rapidly verifiable blockchain secured records
               </p>
             </div>
 
@@ -77,7 +78,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-semibold">Holder Portal</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Students can access, view, and share their verified credentials anytime, anywhere, for life.
+                Users can access, view, and share their verified credentials anytime, anywhere, for life.
               </p>
             </div>
 
@@ -87,7 +88,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-semibold">Blockchain Verified</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Web2.5 approach combining user-friendly design with blockchain security and global scalability.
+                Web3 approach combining user-friendly design with blockchain security and global scalability.
               </p>
             </div>
           </div>
@@ -99,7 +100,7 @@ export default function Home() {
         <div className="max-w-4xl mx-auto text-center space-y-8">
           <h2 className="text-4xl md:text-5xl font-bold">Meet Our Team</h2>
           <p className="text-xl text-muted-foreground leading-relaxed">
-            A diverse group of experts committed to transforming education through blockchain technology
+          A consortium of experts committed to transforming how important documents are secured and verified, using blockchain technology.
           </p>
           <Link href="/team">
             <Button size="lg" variant="outline" className="text-lg px-8 py-6">
@@ -112,7 +113,7 @@ export default function Home() {
       {/* CTA Section */}
       <section className="py-20 px-8 bg-gradient-to-t from-muted/50 to-background">
         <div className="max-w-4xl mx-auto text-center space-y-8">
-          <h2 className="text-4xl md:text-5xl font-bold">Ready to Transform  Record Creation?</h2>
+          <h2 className="text-4xl md:text-5xl font-bold">Ready To Get Started?</h2>
           <p className="text-xl text-muted-foreground leading-relaxed">
             Join us in building the future of secure, verifiable academic credentials. 
             Whether you&apos;re a school administrator or a student, we&apos;re here to help.

@@ -31,7 +31,7 @@ export function StudentDashboard() {
       <div>
         <h2 className="text-3xl font-bold mb-2">My Documents</h2>
         <p className="text-muted-foreground">
-          View and download your published academic documents
+          View and download your published documents
         </p>
       </div>
 
@@ -40,7 +40,7 @@ export function StudentDashboard() {
           <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
           <h3 className="text-xl font-semibold mb-2">No documents yet</h3>
           <p className="text-muted-foreground">
-            Your published academic documents will appear here
+            Your published documents will appear here
           </p>
         </div>
       ) : (

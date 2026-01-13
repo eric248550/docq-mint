@@ -226,7 +226,7 @@ function VerifyPageContent() {
             <div>
               <h1 className="text-4xl font-bold mb-2">Document Verification</h1>
               <p className="text-muted-foreground">
-                Verify the authenticity of academic documents and compare file hashes
+                Verify the authenticity of documents and compare file hashes
               </p>
             </div>
             <Button

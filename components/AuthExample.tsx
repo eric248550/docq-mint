@@ -119,7 +119,6 @@ export function AuthExample() {
   return (
     <div className="flex flex-col gap-6 p-8 border rounded-lg max-w-md w-full bg-card">
       <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2">Firebase Authentication</h2>
         <p className="text-sm text-muted-foreground">
           Sign in or create a new account
         </p>
