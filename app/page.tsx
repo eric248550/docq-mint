@@ -118,14 +118,19 @@ export default function Home() {
             Whether you&apos;re a school administrator or a student, we&apos;re here to help.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
-            <Link href="/schools/create">
+            <Link href="/auth">
               <Button size="lg" className="text-lg px-8 py-6">
-                Create Your School <ArrowRight className="ml-2 h-5 w-5" />
+                Create Your Organization <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-            <Link href="/identity">
+            <Link href="/auth">
               <Button size="lg" variant="outline" className="text-lg px-8 py-6">
                 Access Your Documents
+              </Button>
+            </Link>
+            <Link href="/verify">
+              <Button size="lg" variant="outline" className="text-lg px-8 py-6">
+                Verify Documents
               </Button>
             </Link>
           </div>
