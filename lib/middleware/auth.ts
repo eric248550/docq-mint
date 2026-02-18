@@ -54,19 +54,9 @@ export async function withAuth(
       // Create wallet for user (holder role)
       const network = process.env.CARDANO_NETWORK === 'mainnet' ? 'mainnet' : 'preprod';
       const wallet = await createWalletForOwner(dbUser.id, 'holder', network as 'mainnet' | 'preprod');
-      
+
       if (!wallet) {
         console.error('Failed to create wallet for user, but continuing with user creation');
-      }
-
-      // Claim any pending invitations for this email
-      if (firebaseUser.email) {
-        await query(
-          `UPDATE docq_mint_school_memberships
-           SET user_id = $1, status = 'active'
-           WHERE invite_email = $2 AND user_id IS NULL AND status = 'invited'`,
-          [dbUser.id, firebaseUser.email]
-        );
       }
     }
 

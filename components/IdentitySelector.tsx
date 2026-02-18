@@ -84,7 +84,7 @@ export function IdentitySelector() {
         <div className="space-y-3">
           <Button onClick={() => router.push('/schools/create')} className="w-full">
             <Building2 className="mr-2 h-4 w-4" />
-            Create a Organization
+            Create an Organization
           </Button>
           <p className="text-sm text-muted-foreground">
           Or wait for an administrator to invite you as a member or user.
@@ -98,7 +98,7 @@ export function IdentitySelector() {
     <div className="max-w-2xl mx-auto p-6">
       <h2 className="text-3xl font-bold mb-2">Select Your Role</h2>
       <p className="text-muted-foreground mb-8">
-        Choose how you want to access DOCQ Mint
+        Choose how you want to access DOCQ-Mint
       </p>
 
       <div className="space-y-4">

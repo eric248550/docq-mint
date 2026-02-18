@@ -82,17 +82,15 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
       {showInviteForm && (
         <form onSubmit={handleInvite} className="border rounded-lg p-4 space-y-4">
           <div>
-            <label className="text-sm font-medium">Email (optional)</label>
+            <label className="text-sm font-medium">Email</label>
             <input
               type="email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
               placeholder="student@example.com"
               className="w-full mt-1 px-3 py-2 border rounded-md"
+              required
             />
-            <p className="text-xs text-muted-foreground mt-1">
-              Leave empty for a placeholder invitation
-            </p>
           </div>
           <div>
             <label className="text-sm font-medium">Role</label>

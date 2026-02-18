@@ -1,21 +1,22 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { AuthExample } from '@/components/AuthExample';
 import { Loader2 } from 'lucide-react';
 
-export default function AuthPage() {
+function AuthContent() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect');
 
   useEffect(() => {
-    // If user is already authenticated, redirect to identity selection
     if (!isLoading && user) {
-      router.push('/identity');
+      router.push(redirect || '/identity');
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, redirect]);
 
   if (isLoading) {
     return (
@@ -25,7 +26,6 @@ export default function AuthPage() {
     );
   }
 
-  // If user is authenticated, show nothing (will redirect via useEffect)
   if (user) {
     return null;
   }
@@ -39,10 +39,23 @@ export default function AuthPage() {
             Sign in to manage your records and credentials
           </p>
         </div>
-        
+
         <AuthExample />
       </div>
     </main>
   );
 }
 
+export default function AuthPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <AuthContent />
+    </Suspense>
+  );
+}

@@ -15,16 +15,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // First, claim any pending invitations for this user's email
-    if (dbUser.email) {
-      await query(
-        `UPDATE docq_mint_school_memberships
-         SET user_id = $1, status = 'active'
-         WHERE invite_email = $2 AND user_id IS NULL AND status = 'invited'`,
-        [dbUser.id, dbUser.email]
-      );
-    }
-
     // Get user's school memberships with school details
     const memberships = await query<DBSchoolMembership & { school_name: string }>(
       `SELECT m.*, s.name as school_name

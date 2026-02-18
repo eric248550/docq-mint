@@ -68,7 +68,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-semibold">Secure Documents</h3>
               <p className="text-muted-foreground leading-relaxed">
-              Tamper-proof, rapidly verifiable blockchain secured records
+              Tamper-proof, rapidly verifiable blockchain secured records.
               </p>
             </div>
 
