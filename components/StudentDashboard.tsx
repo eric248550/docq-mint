@@ -5,6 +5,7 @@ import { useStudentDocuments } from '@/hooks/useSchools';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DBDocument } from '@/lib/db/types';
 import { FileText, Download, Calendar, Loader2, Share2, Copy, Check } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
 
 export function StudentDashboard() {
@@ -221,34 +222,41 @@ function DocumentCard({ document }: { document: DBDocument }) {
       {shareUrl && (
         <div className="mt-4 pt-4 border-t">
           <p className="text-sm font-medium mb-2">Verification Link:</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={shareUrl}
-              readOnly
-              className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCopyLink}
-            >
-              {copied ? (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy
-                </>
-              )}
-            </Button>
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
+            <div className="flex-shrink-0 p-3 bg-white rounded-lg border">
+              <QRCodeSVG value={shareUrl} size={160} level="M" />
+            </div>
+            <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={shareUrl}
+                  readOnly
+                  className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyLink}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-4 w-4 mr-2" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Share this link or scan the QR code with third parties to verify your document. They will need to pay $2 to access it.
+              </p>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Share this link with third parties to verify your document. They will need to pay $2 to access it.
-          </p>
         </div>
       )}
     </div>
