@@ -71,36 +71,35 @@ export function IdentitySelector() {
     );
   }
 
-  if (memberships.length === 0) {
-    return (
-      <div className="text-center p-8 max-w-md mx-auto">
-        <div className="mb-6">
-          <Building2 className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-          <h2 className="text-2xl font-bold mb-2">Welcome to DOCQ-Mint</h2>
-          <p className="text-muted-foreground">
-            You don&apos;t have any organizations yet.
-          </p>
-        </div>
-        <div className="space-y-3">
-          <Button onClick={() => router.push('/schools/create')} className="w-full">
-            <Building2 className="mr-2 h-4 w-4" />
-            Create an Organization
-          </Button>
-          <p className="text-sm text-muted-foreground">
-          Or wait for an administrator to invite you as a member or user.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-2xl mx-auto p-6">
-      <h2 className="text-3xl font-bold mb-2">Select Your Role</h2>
+      <h2 className="text-3xl font-bold mb-2">
+        {memberships.length === 0 ? 'Welcome to DOCQ-Mint' : 'Select Your Role'}
+      </h2>
       <p className="text-muted-foreground mb-8">
-        Choose how you want to access DOCQ-Mint
+        {memberships.length === 0
+          ? "You don't have any organizations yet. Create one or wait for an invite."
+          : 'Choose how you want to access DOCQ-Mint'}
       </p>
 
+      {/* Always show Create Organization */}
+      <div className="mb-6">
+        <Button
+          variant={memberships.length === 0 ? 'default' : 'outline'}
+          onClick={() => router.push('/schools/create')}
+          className="w-full"
+        >
+          <Building2 className="mr-2 h-4 w-4" />
+          Create an Organization
+        </Button>
+      </div>
+
+      {memberships.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center">
+          Or wait for an administrator to invite you as a member or user.
+        </p>
+      ) : (
+        <>
       <div className="space-y-4">
         {/* School Admin Option */}
         {hasAdminRole && (
@@ -203,6 +202,8 @@ export function IdentitySelector() {
             Continue as {selectedContext === 'student' ? 'User' : 'Organization Admin'}
           </Button>
         </div>
+      )}
+        </>
       )}
     </div>
   );
