@@ -8,6 +8,7 @@ import { DBDocument } from '@/lib/db/types';
 import { FileText, Download, Calendar, Loader2, Share2, Copy, Check, Search, ArrowUpDown } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
+import { Modal, useModal } from '@/components/ui/alert-modal';
 
 export function StudentDashboard() {
   const router = useRouter();
@@ -160,6 +161,7 @@ function DocumentCard({ document }: { document: DBDocument }) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { getAuthToken } = useAuthStore();
+  const { modal, showAlert, closeModal } = useModal();
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
@@ -203,7 +205,7 @@ function DocumentCard({ document }: { document: DBDocument }) {
       window.open(url, '_blank');
     } catch (error) {
       console.error('Download error:', error);
-      alert('Failed to download document. Please try again.');
+      await showAlert('Failed to download document. Please try again.');
     } finally {
       setIsDownloading(false);
     }
@@ -233,7 +235,7 @@ function DocumentCard({ document }: { document: DBDocument }) {
       setShareUrl(url);
     } catch (error) {
       console.error('Share error:', error);
-      alert('Failed to generate share link. Please try again.');
+      await showAlert('Failed to generate share link. Please try again.');
     } finally {
       setIsSharing(false);
     }
@@ -249,6 +251,13 @@ function DocumentCard({ document }: { document: DBDocument }) {
 
   return (
     <div className="border rounded-lg p-6 hover:border-primary/50 transition-colors">
+      <Modal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={() => closeModal(true)}
+        onCancel={() => closeModal(false)}
+      />
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4 flex-1">
           <div className="p-3 bg-primary/10 rounded-lg">

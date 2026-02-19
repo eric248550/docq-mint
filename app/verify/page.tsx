@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { Modal, useModal } from '@/components/ui/alert-modal';
 import { 
   FileText, 
   Download, 
@@ -52,6 +53,7 @@ function VerifyPageContent() {
   const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [hasAutoLoaded, setHasAutoLoaded] = useState(false);
+  const { modal, showAlert, closeModal } = useModal();
 
   // Auto-load if token is in URL
   useEffect(() => {
@@ -155,7 +157,7 @@ function VerifyPageContent() {
       window.open(url, '_blank');
     } catch (error: any) {
       console.error('Download error:', error);
-      alert(error.message || 'Failed to download document');
+      await showAlert(error.message || 'Failed to download document');
     } finally {
       setIsDownloading(false);
     }
@@ -220,6 +222,13 @@ function VerifyPageContent() {
 
   return (
     <div className="min-h-screen bg-background p-8">
+      <Modal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={() => closeModal(true)}
+        onCancel={() => closeModal(false)}
+      />
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <div className="flex items-start justify-between">

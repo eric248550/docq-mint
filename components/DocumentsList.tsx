@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown } from 'lucide-react';
 import { DBDocument } from '@/lib/db/types';
+import { Modal, useModal } from '@/components/ui/alert-modal';
 
 interface DocumentsListProps {
   schoolId: string;
@@ -35,6 +36,9 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const { getAuthToken } = useAuthStore();
 
   const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadStudentSearch, setUploadStudentSearch] = useState('');
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const uploadStudentRef = useRef<HTMLDivElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [formData, setFormData] = useState({
@@ -45,6 +49,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const [isMinting, setIsMinting] = useState(false);
   const [mintingDocId, setMintingDocId] = useState<string | null>(null);
 
+  const { modal, showAlert, showConfirm, closeModal } = useModal();
+
   // Only show students who have actually signed up (user_id is not null)
   const students = members.filter(m => m.role === 'student' && m.user_id !== null);
 
@@ -53,10 +59,44 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   // Get unminted documents
   const unmintedDocuments = documents.filter(doc => !doc.is_published);
 
-  // Fetch members for the assign-to-student dropdown (high limit, no pagination)
+  // Fetch students for the assign dropdown; search is driven by DocumentRow via handleSearchStudents
   useEffect(() => {
-    refetchMembers({ limit: 100 });
+    refetchMembers({ role: 'student', limit: 20 });
   }, [schoolId]);
+
+  const handleSearchStudents = (query: string) => {
+    refetchMembers({ role: 'student', search: query, limit: 20 });
+  };
+
+  // Reset upload form student search/dropdown and reload default list whenever the form opens
+  useEffect(() => {
+    if (showUploadForm) {
+      setUploadStudentSearch('');
+      setShowStudentDropdown(false);
+      handleSearchStudents('');
+    }
+  }, [showUploadForm]);
+
+  // Click-outside closes the student dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (uploadStudentRef.current && !uploadStudentRef.current.contains(e.target as Node)) {
+        setShowStudentDropdown(false);
+      }
+    };
+    if (showStudentDropdown) {
+      window.document.addEventListener('mousedown', handleClickOutside);
+      return () => window.document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showStudentDropdown]);
+
+  // Debounce upload form student search → API call
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      handleSearchStudents(uploadStudentSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [uploadStudentSearch]);
 
   // Debounce search input
   useEffect(() => {
@@ -120,7 +160,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -136,7 +176,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     }
 
     if (acceptedFiles.length < files.length) {
-      alert(`${files.length - acceptedFiles.length} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`);
+      await showAlert(`${files.length - acceptedFiles.length} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`);
     }
   };
 
@@ -155,7 +195,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     e.preventDefault();
 
     if (selectedFiles.length === 0) {
-      alert('Please select at least one file');
+      await showAlert('Please select at least one file');
       return;
     }
 
@@ -210,16 +250,17 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       }
 
       if (successCount === selectedFiles.length) {
-        alert(`All ${successCount} document(s) uploaded successfully!`);
+        await showAlert(`All ${successCount} document(s) uploaded successfully!`);
       } else if (successCount > 0) {
-        alert(`${successCount} document(s) uploaded successfully.\n\nFailed: ${failedFiles.join(', ')}`);
+        await showAlert(`${successCount} document(s) uploaded successfully.\n\nFailed: ${failedFiles.join(', ')}`);
       } else {
-        alert(`Failed to upload all documents.\n\nFailed: ${failedFiles.join(', ')}`);
+        await showAlert(`Failed to upload all documents.\n\nFailed: ${failedFiles.join(', ')}`);
       }
 
       if (successCount > 0) {
         setShowUploadForm(false);
         setSelectedFiles([]);
+        setUploadStudentSearch('');
         setFormData({ student_id: '', document_type: 'report_card' });
         reset();
         // Refetch with current filters
@@ -232,26 +273,27 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     } catch (error) {
       console.error('Failed to upload documents:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Failed to upload documents: ${errorMessage}`);
+      await showAlert(`Failed to upload documents: ${errorMessage}`);
       reset();
       setUploadingFiles(new Set());
     }
   };
 
   const handleDelete = async (documentId: string) => {
-    if (!confirm('Are you sure you want to delete this document?')) return;
+    const confirmed = await showConfirm('Are you sure you want to delete this document?');
+    if (!confirmed) return;
 
     try {
       await deleteDocument(documentId);
     } catch (error) {
       console.error('Failed to delete document:', error);
-      alert('Failed to delete document');
+      await showAlert('Failed to delete document');
     }
   };
 
   const handleMintDocuments = async (documentIds: string[]) => {
     if (documentIds.length === 0) {
-      alert('No documents to publish');
+      await showAlert('No documents to publish');
       return;
     }
 
@@ -259,7 +301,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       ? 'Are you sure you want to publish this document to the blockchain? This action cannot be undone.'
       : `Are you sure you want to publish ${documentIds.length} documents to the blockchain? This action cannot be undone.`;
 
-    if (!confirm(confirmMessage)) return;
+    const confirmed = await showConfirm(confirmMessage);
+    if (!confirmed) return;
 
     setIsMinting(true);
     try {
@@ -284,7 +327,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
       const result = await response.json();
 
-      alert(
+      await showAlert(
         `Publishing job queued for ${result.documentCount} document(s)!\n\n` +
         `The minting process is running in the background and will be confirmed on the blockchain.\n\n` +
         `Please refresh the page in a few minutes to see the updated status.`
@@ -298,7 +341,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     } catch (error) {
       console.error('Failed to publish documents:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Failed to publish documents: ${errorMessage}`);
+      await showAlert(`Failed to publish documents: ${errorMessage}`);
     } finally {
       setIsMinting(false);
       setMintingDocId(null);
@@ -335,6 +378,14 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   return (
     <div className="space-y-4">
+      <Modal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={() => closeModal(true)}
+        onCancel={() => closeModal(false)}
+      />
+
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">
           Documents ({limit ? total : (pagination ? `${total} total` : documents.length)})
@@ -433,27 +484,60 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         <form onSubmit={handleUpload} className="border rounded-lg p-4 space-y-4">
           <div>
             <label className="text-sm font-medium">Student</label>
-            <select
-              value={formData.student_id}
-              onChange={(e) => setFormData({ ...formData, student_id: e.target.value })}
-              className="w-full mt-1 px-3 py-2 border rounded-md bg-background"
-            >
-              <option value="">Select student (optional)</option>
-              {students.length === 0 ? (
-                <option disabled>No active students yet</option>
-              ) : (
-                students.map((student) => (
-                  <option key={student.id} value={student.user_id!}>
-                    {student.email || 'Student'}
-                  </option>
-                ))
+            <div className="relative mt-1" ref={uploadStudentRef}>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search by email... (optional)"
+                  value={uploadStudentSearch}
+                  onChange={e => {
+                    setUploadStudentSearch(e.target.value);
+                    setFormData(f => ({ ...f, student_id: '' }));
+                    setShowStudentDropdown(true);
+                  }}
+                  onFocus={() => setShowStudentDropdown(true)}
+                  className="w-full pl-8 pr-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              {showStudentDropdown && (
+                <div className="absolute z-10 w-full bg-white border rounded-md shadow-lg mt-1 max-h-52 overflow-y-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData(f => ({ ...f, student_id: '' }));
+                      setUploadStudentSearch('');
+                      setShowStudentDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:bg-gray-100"
+                  >
+                    No student (optional)
+                  </button>
+                  {students.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      {uploadStudentSearch ? 'No students found' : 'No active students yet'}
+                    </div>
+                  ) : (
+                    students.map((student) => (
+                      <button
+                        type="button"
+                        key={student.id}
+                        onClick={() => {
+                          setFormData(f => ({ ...f, student_id: student.user_id! }));
+                          setUploadStudentSearch(student.email || '');
+                          setShowStudentDropdown(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${
+                          formData.student_id === student.user_id ? 'bg-primary/10' : ''
+                        }`}
+                      >
+                        {student.email || 'Unknown'}
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
-            </select>
-            {students.length === 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Students must sign in before documents can be assigned to them.
-              </p>
-            )}
+            </div>
           </div>
 
           <div>
@@ -610,6 +694,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               onDelete={!limit ? handleDelete : undefined}
               onAssign={!limit ? updateDocument : undefined}
               onMint={!limit ? handleMintSingle : undefined}
+              onSearchStudents={!limit ? handleSearchStudents : undefined}
               isMinting={mintingDocId === doc.id}
             />
           ))}
@@ -657,20 +742,32 @@ interface DocumentRowProps {
   onDelete?: (id: string) => void;
   onAssign?: (documentId: string, data: { student_id?: string | null }) => Promise<any>;
   onMint?: (documentId: string) => Promise<void>;
+  onSearchStudents?: (query: string) => void;
   isMinting?: boolean;
 }
 
-function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting }: DocumentRowProps) {
+function DocumentRow({ document, students, onDelete, onAssign, onMint, onSearchStudents, isMinting }: DocumentRowProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [studentSearchInput, setStudentSearchInput] = useState('');
   const { getAuthToken } = useAuthStore();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
+  const { modal, showAlert, closeModal } = useModal();
+
+  // Close + reset helper
+  const closeDropdown = () => {
+    setShowAssignDropdown(false);
+    setStudentSearchInput('');
+  };
+
+  // Click-outside closes and resets
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowAssignDropdown(false);
+        closeDropdown();
       }
     };
 
@@ -679,6 +776,22 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
       return () => window.document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showAssignDropdown]);
+
+  // Auto-focus search input and reload default list whenever dropdown opens
+  useEffect(() => {
+    if (showAssignDropdown) {
+      searchInputRef.current?.focus();
+      onSearchStudents?.('');
+    }
+  }, [showAssignDropdown]);
+
+  // Debounce: call API search as user types
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onSearchStudents?.(studentSearchInput);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [studentSearchInput]);
 
   const getDocumentTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
@@ -722,7 +835,7 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
       window.open(url, '_blank');
     } catch (error) {
       console.error('Download error:', error);
-      alert('Failed to download document. Please try again.');
+      await showAlert('Failed to download document. Please try again.');
     } finally {
       setIsDownloading(false);
     }
@@ -732,12 +845,12 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
     if (!onAssign) return;
 
     setIsAssigning(true);
-    setShowAssignDropdown(false);
+    closeDropdown();
     try {
       await onAssign(document.id, { student_id: studentId });
     } catch (error) {
       console.error('Failed to assign student:', error);
-      alert('Failed to assign student. Please try again.');
+      await showAlert('Failed to assign student. Please try again.');
     } finally {
       setIsAssigning(false);
     }
@@ -751,6 +864,13 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
 
   return (
     <div className="flex items-center justify-between p-4 border rounded-lg hover:border-primary/50 transition-colors">
+      <Modal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={() => closeModal(true)}
+        onCancel={() => closeModal(false)}
+      />
       <div className="flex items-center gap-3 flex-1">
         <FileText className="h-5 w-5 text-primary" />
         <div className="flex-1 min-w-0">
@@ -793,7 +913,7 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowAssignDropdown(!showAssignDropdown)}
+              onClick={() => showAssignDropdown ? closeDropdown() : setShowAssignDropdown(true)}
               disabled={isAssigning}
               className="text-xs"
             >
@@ -805,8 +925,23 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
               {getAssignedStudentName()}
             </Button>
             {showAssignDropdown && (
-              <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto">
-                <div className="p-2">
+              <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-10">
+                {/* Search input */}
+                <div className="p-2 border-b">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Search student..."
+                      value={studentSearchInput}
+                      onChange={e => setStudentSearchInput(e.target.value)}
+                      className="w-full pl-7 pr-2 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+                {/* Student list */}
+                <div className="p-2 max-h-52 overflow-y-auto">
                   <button
                     onClick={() => handleAssignStudent(null)}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded"
@@ -815,7 +950,7 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
                   </button>
                   {students.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-muted-foreground">
-                      No active students
+                      {studentSearchInput ? 'No students found' : 'No active students'}
                     </div>
                   ) : (
                     students.map((student) => (
@@ -875,3 +1010,4 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
     </div>
   );
 }
+

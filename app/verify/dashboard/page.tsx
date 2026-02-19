@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Modal, useModal } from '@/components/ui/alert-modal';
 import { 
   FileText, 
   Download, 
@@ -50,6 +51,7 @@ export default function VerifierDashboardPage() {
   const [comparisonResults, setComparisonResults] = useState<Record<string, ComparisonResult>>({});
   const [uploadingFiles, setUploadingFiles] = useState<Record<string, boolean>>({});
   const [downloadingDocs, setDownloadingDocs] = useState<Record<string, boolean>>({});
+  const { modal, showAlert, closeModal } = useModal();
 
   // Load from localStorage
   useEffect(() => {
@@ -238,7 +240,7 @@ export default function VerifierDashboardPage() {
       window.open(url, '_blank');
     } catch (error: any) {
       console.error('Download error:', error);
-      alert(error.message || 'Failed to download document');
+      await showAlert(error.message || 'Failed to download document');
     } finally {
       setDownloadingDocs(prev => ({ ...prev, [token]: false }));
     }
@@ -297,6 +299,13 @@ export default function VerifierDashboardPage() {
 
   return (
     <div className="min-h-screen bg-background p-8">
+      <Modal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={() => closeModal(true)}
+        onCancel={() => closeModal(false)}
+      />
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Verification Dashboard</h1>

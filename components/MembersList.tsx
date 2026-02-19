@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchoolMembers } from '@/hooks/useSchools';
 import { Button } from '@/components/ui/button';
 import { Users, UserPlus, Loader2, Trash2, Search, ArrowUpDown } from 'lucide-react';
+import { Modal, useModal } from '@/components/ui/alert-modal';
 
 interface MembersListProps {
   schoolId: string;
@@ -24,6 +25,7 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
   const [sortOrder, setSortOrder] = useState(!limit ? (searchParams.get('mSort') || 'desc') : 'desc');
 
   const { members, pagination, isLoading, error, refetch, inviteMember, removeMember } = useSchoolMembers(schoolId);
+  const { modal, showAlert, showConfirm, closeModal } = useModal();
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('student');
@@ -85,20 +87,21 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
       }
     } catch (error) {
       console.error('Failed to invite member:', error);
-      alert('Failed to invite member');
+      await showAlert('Failed to invite member');
     } finally {
       setIsInviting(false);
     }
   };
 
   const handleRemove = async (memberId: string) => {
-    if (!confirm('Are you sure you want to remove this member?')) return;
+    const confirmed = await showConfirm('Are you sure you want to remove this member?');
+    if (!confirmed) return;
 
     try {
       await removeMember(memberId);
     } catch (error) {
       console.error('Failed to remove member:', error);
-      alert('Failed to remove member');
+      await showAlert('Failed to remove member');
     }
   };
 
@@ -122,6 +125,13 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
 
   return (
     <div className="space-y-4">
+      <Modal
+        isOpen={modal.isOpen}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={() => closeModal(true)}
+        onCancel={() => closeModal(false)}
+      />
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">
           Members ({limit ? total : (pagination ? `${total} total` : members.length)})
