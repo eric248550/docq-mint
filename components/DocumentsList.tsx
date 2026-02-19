@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useTransition } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchoolDocuments, useSchoolMembers } from '@/hooks/useSchools';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket } from 'lucide-react';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown } from 'lucide-react';
 import { DBDocument } from '@/lib/db/types';
 
 interface DocumentsListProps {
@@ -14,11 +15,25 @@ interface DocumentsListProps {
 }
 
 export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
-  const { documents, isLoading, error, createDocument, updateDocument, deleteDocument, refetch } = useSchoolDocuments(schoolId);
-  const { members } = useSchoolMembers(schoolId);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Filter state – initialised from URL only in full view
+  const [page, setPage] = useState(!limit ? (Number(searchParams.get('page')) || 1) : 1);
+  const [searchInput, setSearchInput] = useState(!limit ? (searchParams.get('search') || '') : '');
+  const [search, setSearch] = useState(!limit ? (searchParams.get('search') || '') : '');
+  const [documentType, setDocumentType] = useState(!limit ? (searchParams.get('docType') || '') : '');
+  const [unassigned, setUnassigned] = useState(!limit ? (searchParams.get('unassigned') || '') : '');
+  const [issued, setIssued] = useState(!limit ? (searchParams.get('issued') || '') : '');
+  const [sortOrder, setSortOrder] = useState(!limit ? (searchParams.get('sort') || 'desc') : 'desc');
+
+  const [, startTransition] = useTransition();
+
+  const { documents, pagination, isLoading, error, createDocument, updateDocument, deleteDocument, refetch } = useSchoolDocuments(schoolId);
+  const { members, refetch: refetchMembers } = useSchoolMembers(schoolId);
   const { uploadFile, progress, reset } = useS3Upload();
   const { getAuthToken } = useAuthStore();
-  
+
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -32,11 +47,59 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   // Only show students who have actually signed up (user_id is not null)
   const students = members.filter(m => m.role === 'student' && m.user_id !== null);
-  
+
   const isUploading = progress.status === 'uploading' || uploadingFiles.size > 0;
-  
+
   // Get unminted documents
   const unmintedDocuments = documents.filter(doc => !doc.is_published);
+
+  // Fetch members for the assign-to-student dropdown (high limit, no pagination)
+  useEffect(() => {
+    refetchMembers({ limit: 100 });
+  }, [schoolId]);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Fetch documents (preview mode: once on mount; full mode: on every filter change)
+  useEffect(() => {
+    if (limit) {
+      refetch({ limit });
+    }
+  }, [schoolId, limit]);
+
+  useEffect(() => {
+    if (limit) return;
+    refetch({ page, search, documentType, unassigned, issued, sortOrder });
+  }, [page, search, documentType, unassigned, issued, sortOrder, schoolId]);
+
+  // Sync filters to URL in full view (wrapped in startTransition so the URL
+  // update is non-blocking and never interrupts an active search input)
+  useEffect(() => {
+    if (limit) return;
+    const params = new URLSearchParams();
+    if (page > 1) params.set('page', String(page));
+    if (search) params.set('search', search);
+    if (documentType) params.set('docType', documentType);
+    if (unassigned) params.set('unassigned', unassigned);
+    if (issued) params.set('issued', issued);
+    if (sortOrder !== 'desc') params.set('sort', sortOrder);
+    const qs = params.toString();
+    startTransition(() => {
+      router.replace(qs ? `?${qs}` : '?', { scroll: false });
+    });
+  }, [page, search, documentType, unassigned, issued, sortOrder, limit]);
+
+  const handleFilterChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setter(e.target.value);
+    setPage(1);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -63,7 +126,6 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-    // Filter for accepted file types
     const acceptedFiles = files.filter(file => {
       const extension = file.name.split('.').pop()?.toLowerCase();
       return ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'].includes(extension || '');
@@ -91,39 +153,33 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (selectedFiles.length === 0) {
       alert('Please select at least one file');
       return;
     }
 
-    const studentId = formData.student_id && formData.student_id.trim() !== '' 
-      ? formData.student_id 
+    const studentId = formData.student_id && formData.student_id.trim() !== ''
+      ? formData.student_id
       : undefined;
 
     let successCount = 0;
     let failedFiles: string[] = [];
 
     try {
-      // Upload files sequentially
       for (const file of selectedFiles) {
         try {
           setUploadingFiles(prev => new Set(prev).add(file.name));
-
-          // Reset any previous upload state
           reset();
-          
-          // Upload to S3
+
           const uploadResult = await uploadFile(file);
-          
+
           if (!uploadResult) {
             throw new Error('Failed to upload file to S3');
           }
-          
-          // Calculate file hash
+
           const fileHash = await calculateFileHash(file);
 
-          // Create document record
           await createDocument({
             student_id: studentId,
             document_type: formData.document_type,
@@ -136,7 +192,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           });
 
           successCount++;
-          
+
           setUploadingFiles(prev => {
             const next = new Set(prev);
             next.delete(file.name);
@@ -153,7 +209,6 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         }
       }
 
-      // Show results
       if (successCount === selectedFiles.length) {
         alert(`All ${successCount} document(s) uploaded successfully!`);
       } else if (successCount > 0) {
@@ -162,15 +217,17 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         alert(`Failed to upload all documents.\n\nFailed: ${failedFiles.join(', ')}`);
       }
 
-      // Reset form if any uploads succeeded
       if (successCount > 0) {
         setShowUploadForm(false);
         setSelectedFiles([]);
-        setFormData({
-          student_id: '',
-          document_type: 'report_card',
-        });
+        setFormData({ student_id: '', document_type: 'report_card' });
         reset();
+        // Refetch with current filters
+        if (limit) {
+          refetch({ limit });
+        } else {
+          refetch({ page, search, documentType, unassigned, issued, sortOrder });
+        }
       }
     } catch (error) {
       console.error('Failed to upload documents:', error);
@@ -226,15 +283,18 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       }
 
       const result = await response.json();
-      
+
       alert(
         `Publishing job queued for ${result.documentCount} document(s)!\n\n` +
         `The minting process is running in the background and will be confirmed on the blockchain.\n\n` +
         `Please refresh the page in a few minutes to see the updated status.`
       );
-      
-      // Refetch documents to update UI
-      await refetch();
+
+      if (limit) {
+        await refetch({ limit });
+      } else {
+        await refetch({ page, search, documentType, unassigned, issued, sortOrder });
+      }
     } catch (error) {
       console.error('Failed to publish documents:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -271,17 +331,19 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     );
   }
 
-  const displayDocuments = limit ? documents.slice(0, limit) : documents;
+  const total = pagination?.total ?? documents.length;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Documents ({documents.length})</h3>
+        <h3 className="text-lg font-semibold">
+          Documents ({limit ? total : (pagination ? `${total} total` : documents.length)})
+        </h3>
         {!limit && (
           <div className="flex gap-2">
             {unmintedDocuments.length > 0 && (
-              <Button 
-                onClick={handleMintAll} 
+              <Button
+                onClick={handleMintAll}
                 size="sm"
                 variant="default"
                 disabled={isMinting}
@@ -306,6 +368,66 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           </div>
         )}
       </div>
+
+      {/* Filter controls – full view only */}
+      {!limit && (
+        <div className="space-y-2">
+          <div className="flex gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search by filename..."
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 text-sm border rounded-md bg-background"
+              />
+            </div>
+            <select
+              value={documentType}
+              onChange={handleFilterChange(setDocumentType)}
+              className="px-3 py-2 text-sm border rounded-md bg-background"
+            >
+              <option value="">All Types</option>
+              <option value="report_card">Report Card</option>
+              <option value="transcript">Transcript</option>
+              <option value="certificate">Certificate</option>
+              <option value="diploma">Diploma</option>
+              <option value="others">Others</option>
+            </select>
+            <select
+              value={issued}
+              onChange={handleFilterChange(setIssued)}
+              className="px-3 py-2 text-sm border rounded-md bg-background"
+            >
+              <option value="">All Status</option>
+              <option value="true">Published</option>
+              <option value="false">Unpublished</option>
+            </select>
+            <select
+              value={unassigned}
+              onChange={handleFilterChange(setUnassigned)}
+              className="px-3 py-2 text-sm border rounded-md bg-background"
+            >
+              <option value="">All Assignment</option>
+              <option value="false">Assigned</option>
+              <option value="true">Unassigned</option>
+            </select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSortOrder(s => s === 'desc' ? 'asc' : 'desc');
+                setPage(1);
+              }}
+              className="flex items-center gap-1"
+            >
+              <ArrowUpDown className="h-3 w-3" />
+              {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {showUploadForm && (
         <form onSubmit={handleUpload} className="border rounded-lg p-4 space-y-4">
@@ -333,7 +455,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               </p>
             )}
           </div>
-          
+
           <div>
             <label className="text-sm font-medium">Document Type</label>
             <select
@@ -356,8 +478,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               className={`mt-1 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-                isDragging 
-                  ? 'border-primary bg-primary/5' 
+                isDragging
+                  ? 'border-primary bg-primary/5'
                   : 'border-gray-300 hover:border-primary/50'
               }`}
             >
@@ -443,7 +565,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               </div>
             </div>
           )}
-          
+
           {progress.status === 'error' && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
               {progress.error}
@@ -452,8 +574,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
           <div className="flex gap-2">
             <Button type="submit" disabled={isUploading || selectedFiles.length === 0}>
-              {isUploading 
-                ? `Uploading... (${uploadingFiles.size}/${selectedFiles.length})` 
+              {isUploading
+                ? `Uploading... (${uploadingFiles.size}/${selectedFiles.length})`
                 : `Upload ${selectedFiles.length} Document${selectedFiles.length !== 1 ? 's' : ''}`}
             </Button>
             <Button
@@ -473,14 +595,14 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         </form>
       )}
 
-      {displayDocuments.length === 0 ? (
+      {documents.length === 0 ? (
         <div className="text-center p-8 border rounded-lg">
           <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground">No documents yet</p>
+          <p className="text-muted-foreground">No documents found</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {displayDocuments.map((doc) => (
+          {(limit ? documents.slice(0, limit) : documents).map((doc) => (
             <DocumentRow
               key={doc.id}
               document={doc}
@@ -494,10 +616,36 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         </div>
       )}
 
-      {limit && documents.length > limit && (
+      {/* "and X more" in preview mode */}
+      {limit && pagination && pagination.total > limit && (
         <p className="text-sm text-center text-muted-foreground">
-          and {documents.length - limit} more...
+          and {pagination.total - limit} more...
         </p>
+      )}
+
+      {/* Pagination in full view */}
+      {!limit && pagination && pagination.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(p => p - 1)}
+            disabled={page <= 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(p => p + 1)}
+            disabled={page >= pagination.totalPages}
+          >
+            Next
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -519,7 +667,6 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
   const { getAuthToken } = useAuthStore();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -555,27 +702,23 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      // Get auth token
       const token = await getAuthToken();
       if (!token) {
         throw new Error('Not authenticated');
       }
 
-      // Get presigned URL from backend
       const response = await fetch(`/api/documents/${document.id}/download`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to get download URL');
       }
 
-      const { url, fileName } = await response.json();
-      
-      // Open in new tab or trigger download
+      const { url } = await response.json();
       window.open(url, '_blank');
     } catch (error) {
       console.error('Download error:', error);
@@ -587,7 +730,7 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
 
   const handleAssignStudent = async (studentId: string | null) => {
     if (!onAssign) return;
-    
+
     setIsAssigning(true);
     setShowAssignDropdown(false);
     try {
@@ -732,4 +875,3 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, isMinting
     </div>
   );
 }
-

@@ -3,6 +3,49 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { authenticatedRequest } from '@/lib/api/client';
 import { DBSchool, DBSchoolMembership, DBDocument } from '@/lib/db/types';
 
+export type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+export type SchoolDocFilters = {
+  page?: number;
+  limit?: number;
+  documentType?: string;
+  search?: string;
+  studentEmail?: string;
+  unassigned?: string;
+  issued?: string;
+  sortOrder?: string;
+};
+
+export type MemberFilters = {
+  page?: number;
+  limit?: number;
+  role?: string;
+  search?: string;
+  sortOrder?: string;
+};
+
+export type StudentDocFilters = {
+  page?: number;
+  limit?: number;
+  documentType?: string;
+  search?: string;
+  issued?: string;
+  sortOrder?: string;
+};
+
+function buildParams(filters: Record<string, string | number | undefined>): string {
+  const p = new URLSearchParams();
+  for (const [key, val] of Object.entries(filters)) {
+    if (val !== undefined && val !== '') p.set(key, String(val));
+  }
+  return p.toString();
+}
+
 export function useSchools() {
   const { getAuthToken } = useAuthStore();
   const [schools, setSchools] = useState<DBSchool[]>([]);
@@ -107,10 +150,11 @@ export function useSchools() {
 export function useSchoolMembers(schoolId: string | null) {
   const { getAuthToken } = useAuthStore();
   const [members, setMembers] = useState<(DBSchoolMembership & { email: string | null })[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchMembers = async () => {
+  const fetchMembers = async (filters: MemberFilters = {}) => {
     if (!schoolId) return;
 
     setIsLoading(true);
@@ -120,13 +164,19 @@ export function useSchoolMembers(schoolId: string | null) {
       const token = await getAuthToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await authenticatedRequest<{ members: (DBSchoolMembership & { email: string | null })[] }>(
-        `/api/schools/${schoolId}/members`,
-        token
-      );
+      const qs = buildParams(filters as Record<string, string | number | undefined>);
+      const url = `/api/schools/${schoolId}/members${qs ? `?${qs}` : ''}`;
+
+      const response = await authenticatedRequest<{
+        data: (DBSchoolMembership & { email: string | null })[];
+        pagination: Pagination;
+      }>(url, token);
 
       if (response.error) throw new Error(response.error);
-      if (response.data) setMembers(response.data.members);
+      if (response.data) {
+        setMembers(response.data.data);
+        setPagination(response.data.pagination);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch members');
     } finally {
@@ -170,12 +220,9 @@ export function useSchoolMembers(schoolId: string | null) {
     setMembers(members.filter(m => m.id !== memberId));
   };
 
-  useEffect(() => {
-    fetchMembers();
-  }, [schoolId]);
-
   return {
     members,
+    pagination,
     isLoading,
     error,
     refetch: fetchMembers,
@@ -187,10 +234,11 @@ export function useSchoolMembers(schoolId: string | null) {
 export function useSchoolDocuments(schoolId: string | null) {
   const { getAuthToken } = useAuthStore();
   const [documents, setDocuments] = useState<DBDocument[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchDocuments = async (studentId?: string) => {
+  const fetchDocuments = async (filters: SchoolDocFilters = {}) => {
     if (!schoolId) return;
 
     setIsLoading(true);
@@ -200,14 +248,19 @@ export function useSchoolDocuments(schoolId: string | null) {
       const token = await getAuthToken();
       if (!token) throw new Error('Not authenticated');
 
-      const url = studentId
-        ? `/api/schools/${schoolId}/documents?student_id=${studentId}`
-        : `/api/schools/${schoolId}/documents`;
+      const qs = buildParams(filters as Record<string, string | number | undefined>);
+      const url = `/api/schools/${schoolId}/documents${qs ? `?${qs}` : ''}`;
 
-      const response = await authenticatedRequest<{ documents: DBDocument[] }>(url, token);
+      const response = await authenticatedRequest<{
+        data: DBDocument[];
+        pagination: Pagination;
+      }>(url, token);
 
       if (response.error) throw new Error(response.error);
-      if (response.data) setDocuments(response.data.documents);
+      if (response.data) {
+        setDocuments(response.data.data);
+        setPagination(response.data.pagination);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch documents');
     } finally {
@@ -264,7 +317,7 @@ export function useSchoolDocuments(schoolId: string | null) {
 
     if (response.error) throw new Error(response.error);
     if (response.data) {
-      setDocuments(documents.map(d => 
+      setDocuments(documents.map(d =>
         d.id === documentId ? response.data!.document : d
       ));
       return response.data.document;
@@ -285,12 +338,9 @@ export function useSchoolDocuments(schoolId: string | null) {
     setDocuments(documents.filter(d => d.id !== documentId));
   };
 
-  useEffect(() => {
-    fetchDocuments();
-  }, [schoolId]);
-
   return {
     documents,
+    pagination,
     isLoading,
     error,
     refetch: fetchDocuments,
@@ -303,10 +353,11 @@ export function useSchoolDocuments(schoolId: string | null) {
 export function useStudentDocuments() {
   const { getAuthToken } = useAuthStore();
   const [documents, setDocuments] = useState<DBDocument[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (filters: StudentDocFilters = {}) => {
     setIsLoading(true);
     setError(null);
 
@@ -314,13 +365,19 @@ export function useStudentDocuments() {
       const token = await getAuthToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await authenticatedRequest<{ documents: DBDocument[] }>(
-        '/api/students/documents',
-        token
-      );
+      const qs = buildParams(filters as Record<string, string | number | undefined>);
+      const url = `/api/students/documents${qs ? `?${qs}` : ''}`;
+
+      const response = await authenticatedRequest<{
+        data: DBDocument[];
+        pagination: Pagination;
+      }>(url, token);
 
       if (response.error) throw new Error(response.error);
-      if (response.data) setDocuments(response.data.documents);
+      if (response.data) {
+        setDocuments(response.data.data);
+        setPagination(response.data.pagination);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch documents');
     } finally {
@@ -328,15 +385,11 @@ export function useStudentDocuments() {
     }
   };
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
   return {
     documents,
+    pagination,
     isLoading,
     error,
     refetch: fetchDocuments,
   };
 }
-

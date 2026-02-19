@@ -1,15 +1,54 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useTransition } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStudentDocuments } from '@/hooks/useSchools';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DBDocument } from '@/lib/db/types';
-import { FileText, Download, Calendar, Loader2, Share2, Copy, Check } from 'lucide-react';
+import { FileText, Download, Calendar, Loader2, Share2, Copy, Check, Search, ArrowUpDown } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
 
 export function StudentDashboard() {
-  const { documents, isLoading, error } = useStudentDocuments();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  const [page, setPage] = useState(Number(searchParams.get('page')) || 1);
+  const [searchInput, setSearchInput] = useState(searchParams.get('search') || '');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
+  const [documentType, setDocumentType] = useState(searchParams.get('docType') || '');
+  const [sortOrder, setSortOrder] = useState(searchParams.get('sort') || 'desc');
+
+  const { documents, pagination, isLoading, error, refetch } = useStudentDocuments();
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Fetch on every filter change
+  useEffect(() => {
+    refetch({ page, search, documentType, sortOrder });
+  }, [page, search, documentType, sortOrder]);
+
+  // Sync to URL (wrapped in startTransition so the URL update is non-blocking
+  // and never interrupts an active search input)
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (page > 1) params.set('page', String(page));
+    if (search) params.set('search', search);
+    if (documentType) params.set('docType', documentType);
+    if (sortOrder !== 'desc') params.set('sort', sortOrder);
+    const qs = params.toString();
+    startTransition(() => {
+      router.replace(qs ? `?${qs}` : '?', { scroll: false });
+    });
+  }, [page, search, documentType, sortOrder]);
 
   if (isLoading) {
     return (
@@ -36,10 +75,45 @@ export function StudentDashboard() {
         </p>
       </div>
 
+      {/* Filter controls */}
+      <div className="flex gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search by filename..."
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 text-sm border rounded-md bg-background"
+          />
+        </div>
+        <select
+          value={documentType}
+          onChange={e => { setDocumentType(e.target.value); setPage(1); }}
+          className="px-3 py-2 text-sm border rounded-md bg-background"
+        >
+          <option value="">All Types</option>
+          <option value="report_card">Report Card</option>
+          <option value="transcript">Transcript</option>
+          <option value="certificate">Certificate</option>
+          <option value="diploma">Diploma</option>
+          <option value="others">Others</option>
+        </select>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => { setSortOrder(s => s === 'desc' ? 'asc' : 'desc'); setPage(1); }}
+          className="flex items-center gap-1"
+        >
+          <ArrowUpDown className="h-3 w-3" />
+          {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+        </Button>
+      </div>
+
       {documents.length === 0 ? (
         <div className="text-center p-12 border rounded-lg">
           <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-xl font-semibold mb-2">No documents yet</h3>
+          <h3 className="text-xl font-semibold mb-2">No documents found</h3>
           <p className="text-muted-foreground">
             Your published documents will appear here
           </p>
@@ -49,6 +123,31 @@ export function StudentDashboard() {
           {documents.map((doc) => (
             <DocumentCard key={doc.id} document={doc} />
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {pagination && pagination.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(p => p - 1)}
+            disabled={page <= 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(p => p + 1)}
+            disabled={page >= pagination.totalPages}
+          >
+            Next
+          </Button>
         </div>
       )}
     </div>
@@ -84,27 +183,23 @@ function DocumentCard({ document }: { document: DBDocument }) {
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      // Get auth token
       const token = await getAuthToken();
       if (!token) {
         throw new Error('Not authenticated');
       }
 
-      // Get presigned URL from backend
       const response = await fetch(`/api/documents/${document.id}/download`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to get download URL');
       }
 
-      const { url, fileName } = await response.json();
-      
-      // Open in new tab
+      const { url } = await response.json();
       window.open(url, '_blank');
     } catch (error) {
       console.error('Download error:', error);
@@ -117,20 +212,18 @@ function DocumentCard({ document }: { document: DBDocument }) {
   const handleShare = async () => {
     setIsSharing(true);
     try {
-      // Get auth token
       const token = await getAuthToken();
       if (!token) {
         throw new Error('Not authenticated');
       }
 
-      // Generate verification link
       const response = await fetch(`/api/documents/${document.id}/share`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to generate share link');
@@ -218,7 +311,7 @@ function DocumentCard({ document }: { document: DBDocument }) {
           </Button>
         </div>
       </div>
-      
+
       {shareUrl && (
         <div className="mt-4 pt-4 border-t">
           <p className="text-sm font-medium mb-2">Verification Link:</p>
@@ -262,4 +355,3 @@ function DocumentCard({ document }: { document: DBDocument }) {
     </div>
   );
 }
-

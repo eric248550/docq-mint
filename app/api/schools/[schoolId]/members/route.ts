@@ -7,7 +7,7 @@ import { generateInviteToken } from '@/lib/invite/token';
 
 /**
  * GET /api/schools/:schoolId/members
- * List school members
+ * List school members with pagination, filtering, and sorting
  */
 export async function GET(
   request: NextRequest,
@@ -21,7 +21,6 @@ export async function GET(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check access
     const hasAccess = await checkSchoolAccess(
       dbUser.id,
       schoolId,
@@ -32,25 +31,54 @@ export async function GET(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Get members with user details
-    const members = await query<DBSchoolMembership & { email: string | null }>(
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)));
+    const offset = (page - 1) * limit;
+
+    const role = searchParams.get('role');
+    const search = searchParams.get('search');
+    const sortOrder = searchParams.get('sortOrder') === 'asc' ? 'ASC' : 'DESC';
+
+    const conditions: string[] = ['m.school_id = $1'];
+    const qp: any[] = [schoolId];
+    let idx = 2;
+
+    if (role) {
+      conditions.push(`m.role = $${idx++}`);
+      qp.push(role);
+    }
+    if (search) {
+      conditions.push(`COALESCE(u.email, m.invite_email) ILIKE $${idx++}`);
+      qp.push(`%${search}%`);
+    }
+
+    const where = conditions.join(' AND ');
+
+    const countRow = await queryOne<{ count: string }>(
+      `SELECT COUNT(*) as count
+       FROM docq_mint_school_memberships m
+       LEFT JOIN docq_mint_users u ON u.id = m.user_id
+       WHERE ${where}`,
+      qp
+    );
+    const total = parseInt(countRow?.count || '0', 10);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    const data = await query<DBSchoolMembership & { email: string | null }>(
       `SELECT m.*, u.email
        FROM docq_mint_school_memberships m
        LEFT JOIN docq_mint_users u ON u.id = m.user_id
-       WHERE m.school_id = $1
-       ORDER BY
-         CASE m.role
-           WHEN 'owner' THEN 1
-           WHEN 'admin' THEN 2
-           WHEN 'viewer' THEN 3
-           WHEN 'student' THEN 4
-           WHEN 'parent' THEN 5
-         END,
-         m.created_at DESC`,
-      [schoolId]
+       WHERE ${where}
+       ORDER BY m.created_at ${sortOrder}
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...qp, limit, offset]
     );
 
-    return NextResponse.json({ members });
+    return NextResponse.json({
+      data,
+      pagination: { page, limit, total, totalPages },
+    });
   });
 }
 
