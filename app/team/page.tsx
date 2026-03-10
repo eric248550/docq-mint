@@ -120,8 +120,8 @@ export default function TeamPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-center text-sm">
               <div>
                 <p className="font-medium">Randall</p>
-                <a href="mailto:R.dsouza@auckland.ac.nz" className="text-primary hover:underline">
-                  R.dsouza@auckland.ac.nz
+                <a href="mailto:r.dsouza@docq-mint.com" className="text-primary hover:underline">
+                r.dsouza@docq-mint.com
                 </a>
               </div>
               <div>
