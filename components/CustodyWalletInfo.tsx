@@ -206,10 +206,7 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
             {balance ? (
               <div>
                 <div className="text-3xl font-bold text-primary">
-                  ₳ {balance.ada}
-                </div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {balance.lovelace} lovelace
+                  {balance.ada} Credit
                 </div>
               </div>
             ) : (
@@ -226,12 +223,6 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Help Text */}
-        <div className="text-xs text-muted-foreground bg-background/50 p-3 rounded-md">
-          💡 <strong>Tip:</strong> Copy the wallet address above to send ADA to this custody wallet. 
-          The organization uses this wallet to mint and manage NFTs for documents.
         </div>
       </div>
     </div>
