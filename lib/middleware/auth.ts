@@ -44,10 +44,10 @@ export async function withAuth(
     if (!dbUser) {
       // Auto-create user on first login
       const rows = await query<DBUser>(
-        `INSERT INTO docq_mint_users (firebase_uid, email, role) 
-         VALUES ($1, $2, $3) 
+        `INSERT INTO docq_mint_users (firebase_uid, email)
+         VALUES ($1, $2)
          RETURNING *`,
-        [firebaseUser.uid, firebaseUser.email || null, 'user']
+        [firebaseUser.uid, firebaseUser.email || null]
       );
       dbUser = rows[0];
 

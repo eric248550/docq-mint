@@ -35,9 +35,7 @@ CREATE TABLE docq_mint_schools (
 CREATE TABLE docq_mint_users (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   firebase_uid       TEXT UNIQUE,             -- 🔑 Firebase UID
-  school_id          UUID REFERENCES docq_mint_schools(id),                    -- nullable (ref: docq_mint_schools.id)
   email              TEXT,                    -- nullable (Firebase already validates)
-  role               TEXT NOT NULL,           -- admin | user
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

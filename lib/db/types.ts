@@ -24,9 +24,7 @@ export interface DBSchool {
 export interface DBUser {
   id: string;
   firebase_uid: string | null;
-  school_id: string | null;
   email: string | null;
-  role: string;
   created_at: Date;
 }
 
@@ -102,7 +100,6 @@ export interface DBVerificationAccess {
 }
 
 // API types
-export type UserRole = 'admin' | 'user';
 export type SchoolMembershipRole = 'owner' | 'admin' | 'viewer' | 'student' | 'parent';
 export type MembershipStatus = 'active' | 'invited' | 'removed';
 export type DocumentType = 'report_card' | 'transcript' | 'certificate' | 'diploma' | 'others';
