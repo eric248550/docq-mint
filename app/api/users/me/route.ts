@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware/auth';
 import { query, queryOne } from '@/lib/db/config';
-import { DBSchoolMembership, DBSchool } from '@/lib/db/types';
+import { DBSchoolMembership, DBVerifierMembership } from '@/lib/db/types';
 
 /**
  * GET /api/users/me
@@ -25,9 +25,20 @@ export async function GET(request: NextRequest) {
       [dbUser.id]
     );
 
+    // Get user's verifier memberships
+    const verifierMemberships = await query<DBVerifierMembership & { verifier_name: string }>(
+      `SELECT m.*, v.name as verifier_name
+       FROM docq_mint_verifier_memberships m
+       JOIN docq_mint_verifiers v ON v.id = m.verifier_id
+       WHERE m.user_id = $1 AND m.status = 'active'
+       ORDER BY m.created_at DESC`,
+      [dbUser.id]
+    );
+
     return NextResponse.json({
       user: dbUser,
       memberships,
+      verifierMemberships,
     });
   });
 }

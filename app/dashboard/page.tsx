@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/store/useAuthStore';
 import { SchoolAdminDashboard } from '@/components/SchoolAdminDashboard';
 import { StudentDashboard } from '@/components/StudentDashboard';
+import { VerifierDashboard } from '@/components/VerifierDashboard';
 import { Button } from '@/components/ui/button';
 import { Loader2, LogOut } from 'lucide-react';
 import { logout } from '@/lib/firebase/auth';
@@ -47,7 +48,7 @@ export default function DashboardPage() {
       <div className="border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold">
-            DOCQ Mint - {identityContext === 'student' ? 'User Portal' : 'Organization Portal'}
+            DOCQ Mint - {identityContext === 'student' ? 'User Portal' : identityContext === 'verifier' ? 'Verifier Portal' : 'Organization Portal'}
           </h1>
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleChangeIdentity}>
@@ -64,6 +65,7 @@ export default function DashboardPage() {
       <div className="container mx-auto px-4 py-8">
         {identityContext === 'school_admin' && <SchoolAdminDashboard />}
         {identityContext === 'student' && <StudentDashboard />}
+        {identityContext === 'verifier' && <VerifierDashboard />}
       </div>
     </main>
   );

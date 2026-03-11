@@ -94,17 +94,45 @@ export interface DBVerificationAccess {
   id: string;
   token_id: string;
   verifier_email: string | null;
-  payment_status: string;
-  payment_amount: number | null;
-  accessed_at: Date;
+  payment_id: string | null;
+  verifier_id: string | null;
+  created_at: Date;
+}
+
+export interface DBVerifier {
+  id: string;
+  name: string;
+  stripe_customer_id: string | null;
+  created_at: Date;
+}
+
+export interface DBVerifierMembership {
+  id: string;
+  verifier_id: string;
+  user_id: string | null;
+  invite_email: string | null;
+  role: string;
+  status: string;
+  created_at: Date;
+}
+
+export interface DBPayment {
+  id: string;
+  payer_user_id: string | null;
+  verifier_id: string | null;
+  school_id: string | null;
+  stripe_payment_intent_id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  created_at: Date;
 }
 
 // API types
 export type SchoolMembershipRole = 'owner' | 'admin' | 'viewer' | 'student' | 'parent';
 export type MembershipStatus = 'active' | 'invited' | 'removed';
 export type DocumentType = 'report_card' | 'transcript' | 'certificate' | 'diploma' | 'others';
-export type IdentityContext = 'student' | 'school_admin';
+export type IdentityContext = 'student' | 'school_admin' | 'verifier';
 export type WalletRole = 'issuer' | 'holder' | 'system';
 export type CardanoNetwork = 'mainnet' | 'preprod';
-export type PaymentStatus = 'pending' | 'paid';
 

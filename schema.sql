@@ -140,7 +140,63 @@ CREATE TABLE docq_mint_verification_access (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   token_id          UUID NOT NULL REFERENCES docq_mint_verification_tokens(id),
   verifier_email    TEXT,
-  payment_status    TEXT NOT NULL DEFAULT 'pending', -- pending | paid
-  payment_amount    DECIMAL(10, 2),
-  accessed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  -- payment_status    TEXT NOT NULL DEFAULT 'pending', -- pending | paid (REMOVED)
+  -- payment_amount    DECIMAL(10, 2) (REMOVED)
+  -- accessed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  payment_id        UUID REFERENCES docq_mint_payments(id),
+  verifier_id       UUID REFERENCES docq_mint_verifiers(id),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ------------------------------------------------------------
+-- VERIFIERS TABLE
+-- ------------------------------------------------------------ 
+CREATE TABLE docq_mint_verifiers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  name TEXT NOT NULL,
+
+  stripe_customer_id TEXT UNIQUE,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_docq_mint_verifiers_name
+ON docq_mint_verifiers(name);
+
+-- ------------------------------------------------------------
+-- VERIFIER MEMBERSHIPS TABLE
+-- ------------------------------------------------------------ 
+CREATE TABLE docq_mint_verifier_memberships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  verifier_id UUID NOT NULL REFERENCES docq_mint_verifiers(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES docq_mint_users(id), -- nullable for invite
+  invite_email TEXT, -- optional for invite
+  role TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (verifier_id, user_id)
+);
+
+CREATE INDEX idx_docq_mint_verifier_memberships_user
+ON docq_mint_verifier_memberships(user_id);
+
+-- ------------------------------------------------------------
+-- PAYMENTS TABLE
+CREATE TABLE docq_mint_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  payer_user_id UUID REFERENCES docq_mint_users(id),
+  verifier_id UUID REFERENCES docq_mint_verifiers(id), -- nullable for user
+  school_id UUID REFERENCES docq_mint_schools(id), -- nullable for user
+
+  stripe_payment_intent_id TEXT UNIQUE,
+
+  amount DECIMAL(10,2) NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'usd',
+
+  status TEXT NOT NULL,
+  -- pending | succeeded | failed | refunded
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

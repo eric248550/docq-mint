@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware/auth';
 import { queryOne } from '@/lib/db/config';
-import { DBSchoolMembership } from '@/lib/db/types';
+import { DBSchoolMembership, DBVerifierMembership } from '@/lib/db/types';
 import { verifyInviteToken } from '@/lib/invite/token';
 
 /**
@@ -37,7 +37,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Look up the pending membership
+    // Handle verifier invite
+    if (payload.verifierId) {
+      const verifierMembership = await queryOne<DBVerifierMembership>(
+        `SELECT * FROM docq_mint_verifier_memberships
+         WHERE verifier_id = $1 AND invite_email = $2 AND status = 'invited'`,
+        [payload.verifierId, dbUser.email]
+      );
+      if (!verifierMembership) {
+        return NextResponse.json({ error: 'Invite not found' }, { status: 404 });
+      }
+      await queryOne(
+        `UPDATE docq_mint_verifier_memberships SET user_id = $1, status = 'active' WHERE id = $2`,
+        [dbUser.id, verifierMembership.id]
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // Look up the pending school membership
     const membership = await queryOne<DBSchoolMembership>(
       `SELECT * FROM docq_mint_school_memberships
        WHERE school_id = $1 AND invite_email = $2 AND status = 'invited'`,

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne } from '@/lib/db/config';
-import { DBVerificationToken, DBDocument, DBVerificationAccess } from '@/lib/db/types';
+import { DBVerificationToken, DBDocument } from '@/lib/db/types';
+import { stripe } from '@/lib/stripe/client';
+import { getOptionalDbUser } from '@/lib/middleware/auth';
 
 /**
  * GET /api/verify/:token
@@ -11,6 +13,8 @@ export async function GET(
   { params }: { params: { token: string } }
 ) {
   const { token } = params;
+  const { searchParams } = new URL(request.url);
+  const verifierId = searchParams.get('verifierId');
 
   // Get verification token
   const verificationToken = await queryOne<DBVerificationToken>(
@@ -43,9 +47,32 @@ export async function GET(
     return NextResponse.json({ error: 'Document not found' }, { status: 404 });
   }
 
+  // Check if verifier already has access
+  let hasAccess = false;
+  if (verifierId) {
+    const access = await queryOne<{ id: string }>(
+      `SELECT id FROM docq_mint_verification_access WHERE token_id = $1 AND verifier_id = $2`,
+      [verificationToken.id, verifierId]
+    );
+    hasAccess = !!access;
+  } else {
+    // Check by logged-in user's payer_user_id on the payment
+    const dbUser = await getOptionalDbUser(request);
+    if (dbUser) {
+      const access = await queryOne<{ id: string }>(
+        `SELECT va.id FROM docq_mint_verification_access va
+         JOIN docq_mint_payments p ON p.id = va.payment_id
+         WHERE va.token_id = $1 AND p.payer_user_id = $2`,
+        [verificationToken.id, dbUser.id]
+      );
+      hasAccess = !!access;
+    }
+  }
+
   // Return document metadata (without the actual file URL for now)
   return NextResponse.json({
     tokenId: verificationToken.id,
+    hasAccess,
     document: {
       id: document.id,
       documentType: document.document_type,
@@ -60,8 +87,8 @@ export async function GET(
 }
 
 /**
- * POST /api/verify/:token/payment
- * Mock payment to access document
+ * POST /api/verify/:token
+ * Initiate Stripe PaymentIntent for document access
  */
 export async function POST(
   request: NextRequest,
@@ -69,7 +96,7 @@ export async function POST(
 ) {
   const { token } = params;
   const body = await request.json();
-  const { verifierEmail } = body;
+  const { verifierEmail, verifierId } = body;
 
   // Get verification token
   const verificationToken = await queryOne<DBVerificationToken>(
@@ -92,26 +119,20 @@ export async function POST(
     );
   }
 
-  // Record the payment/access
-  const access = await queryOne<DBVerificationAccess>(
-    `INSERT INTO docq_mint_verification_access 
-     (token_id, verifier_email, payment_status, payment_amount) 
-     VALUES ($1, $2, $3, $4) 
-     RETURNING *`,
-    [verificationToken.id, verifierEmail, 'paid', 2.00]
-  );
+  // Create Stripe PaymentIntent
+  const metadata: Record<string, string> = {
+    token_ids: verificationToken.id,
+  };
+  if (verifierEmail) metadata.verifier_email = verifierEmail;
+  if (verifierId) metadata.verifier_id = verifierId;
 
-  if (!access) {
-    return NextResponse.json(
-      { error: 'Failed to record payment' },
-      { status: 500 }
-    );
-  }
-
-  return NextResponse.json({
-    success: true,
-    accessId: access.id,
-    message: 'Payment successful',
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: 200, // $2.00 in cents
+    currency: 'usd',
+    metadata,
+    automatic_payment_methods: { enabled: true },
   });
+
+  return NextResponse.json({ clientSecret: paymentIntent.client_secret });
 }
 

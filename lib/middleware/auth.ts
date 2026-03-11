@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractFirebaseToken, verifyFirebaseToken } from '@/lib/auth/firebase-admin';
 import { query, queryOne } from '@/lib/db/config';
-import { DBUser, DBSchoolMembership } from '@/lib/db/types';
+import { DBUser, DBSchoolMembership, DBVerifierMembership } from '@/lib/db/types';
 import { createWalletForOwner } from '@/lib/wallet/cardano';
 
 export interface AuthContext {
@@ -76,6 +76,20 @@ export async function withAuth(
 }
 
 /**
+ * Get logged-in DB user without throwing — returns null if unauthenticated
+ */
+export async function getOptionalDbUser(request: NextRequest): Promise<DBUser | null> {
+  const token = extractFirebaseToken(request);
+  if (!token) return null;
+  const firebaseUser = await verifyFirebaseToken(token);
+  if (!firebaseUser) return null;
+  return await queryOne<DBUser>(
+    'SELECT * FROM docq_mint_users WHERE firebase_uid = $1',
+    [firebaseUser.uid]
+  );
+}
+
+/**
  * Check if user has school membership with required role
  */
 export async function checkSchoolAccess(
@@ -98,10 +112,27 @@ export async function checkSchoolAccess(
  */
 export async function getUserMemberships(userId: string): Promise<DBSchoolMembership[]> {
   return await query<DBSchoolMembership>(
-    `SELECT * FROM docq_mint_school_memberships 
+    `SELECT * FROM docq_mint_school_memberships
      WHERE user_id = $1 AND status = 'active'
      ORDER BY created_at DESC`,
     [userId]
   );
+}
+
+/**
+ * Check if user has verifier membership with required role
+ */
+export async function checkVerifierAccess(
+  userId: string,
+  verifierId: string,
+  requiredRoles: string[]
+): Promise<boolean> {
+  const membership = await queryOne<DBVerifierMembership>(
+    `SELECT * FROM docq_mint_verifier_memberships
+     WHERE user_id = $1 AND verifier_id = $2 AND status = 'active'`,
+    [userId, verifierId]
+  );
+  if (!membership) return false;
+  return requiredRoles.includes(membership.role);
 }
 

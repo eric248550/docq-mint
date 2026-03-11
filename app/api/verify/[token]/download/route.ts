@@ -36,9 +36,10 @@ export async function GET(
 
   // Check if there's a paid access record for this token
   const paidAccess = await queryOne<DBVerificationAccess>(
-    `SELECT * FROM docq_mint_verification_access 
-     WHERE token_id = $1 AND payment_status = 'paid' 
-     ORDER BY accessed_at DESC LIMIT 1`,
+    `SELECT va.* FROM docq_mint_verification_access va
+     JOIN docq_mint_payments p ON p.id = va.payment_id
+     WHERE va.token_id = $1 AND p.status = 'succeeded'
+     ORDER BY va.created_at DESC LIMIT 1`,
     [verificationToken.id]
   );
 

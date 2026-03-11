@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
 
 export interface InviteTokenPayload {
-  schoolId: string;
+  schoolId?: string;
+  verifierId?: string;
   email: string;
   role: string;
   type: 'invite';

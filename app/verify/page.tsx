@@ -4,16 +4,21 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Modal, useModal } from '@/components/ui/alert-modal';
-import { 
-  FileText, 
-  Download, 
-  Upload, 
-  Loader2, 
-  CheckCircle2, 
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { useAuthStore } from '@/store/useAuthStore';
+import {
+  FileText,
+  Download,
+  Upload,
+  Loader2,
+  CheckCircle2,
   XCircle,
   AlertCircle,
   DollarSign
 } from 'lucide-react';
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY!);
 
 interface DocumentInfo {
   tokenId: string;
@@ -37,17 +42,105 @@ interface ComparisonResult {
   fileSize: number;
 }
 
+function CheckoutForm({
+  token,
+  verifierEmail,
+  verifierId,
+  getAuthToken,
+  onSuccess,
+}: {
+  token: string;
+  verifierEmail: string;
+  verifierId?: string;
+  getAuthToken: () => Promise<string | null>;
+  onSuccess: () => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsProcessing(true);
+    setError(null);
+
+    const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required',
+    });
+
+    if (confirmError) {
+      setError(confirmError.message || 'Payment failed');
+      setIsProcessing(false);
+      return;
+    }
+
+    if (paymentIntent?.status === 'succeeded') {
+      const authToken = await getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch(`/api/verify/${token}/access`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          paymentIntentId: paymentIntent.id,
+          verifierEmail: verifierEmail || undefined,
+          verifierId: verifierId || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        setError('Payment recorded but access confirmation failed. Please contact support.');
+      } else {
+        onSuccess();
+      }
+    }
+
+    setIsProcessing(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      {error && (
+        <div className="p-3 bg-destructive/10 text-destructive rounded-md flex items-center gap-2">
+          <AlertCircle className="h-4 w-4" />
+          <span className="text-sm">{error}</span>
+        </div>
+      )}
+      <Button type="submit" disabled={!stripe || isProcessing} className="w-full" size="lg">
+        {isProcessing ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Processing...
+          </>
+        ) : (
+          <>
+            <DollarSign className="h-4 w-4 mr-2" />
+            Pay $2.00
+          </>
+        )}
+      </Button>
+    </form>
+  );
+}
+
 function VerifyPageContent() {
   const searchParams = useSearchParams();
   const tokenFromUrl = searchParams.get('token');
+  const verifierIdFromUrl = searchParams.get('verifierId');
+  const { user, getAuthToken, selectedVerifierId } = useAuthStore();
 
   const [token, setToken] = useState(tokenFromUrl || '');
   const [isLoading, setIsLoading] = useState(false);
-  const [isPaying, setIsPaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isComparing, setIsComparing] = useState(false);
   const [documentInfo, setDocumentInfo] = useState<DocumentInfo | null>(null);
   const [hasPaid, setHasPaid] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [verifierEmail, setVerifierEmail] = useState('');
   const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
@@ -55,7 +148,10 @@ function VerifyPageContent() {
   const [hasAutoLoaded, setHasAutoLoaded] = useState(false);
   const { modal, showAlert, closeModal } = useModal();
 
-  // Auto-load if token is in URL
+  useEffect(() => {
+    if (user?.email) setVerifierEmail(user.email);
+  }, [user?.email]);
+
   useEffect(() => {
     if (tokenFromUrl && !documentInfo && !hasAutoLoaded) {
       setHasAutoLoaded(true);
@@ -66,8 +162,6 @@ function VerifyPageContent() {
 
   const extractToken = (input: string): string => {
     const trimmed = input.trim();
-    
-    // Check if it's a full URL
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       try {
         const url = new URL(trimmed);
@@ -77,7 +171,6 @@ function VerifyPageContent() {
         return trimmed;
       }
     }
-    
     return trimmed;
   };
 
@@ -86,78 +179,80 @@ function VerifyPageContent() {
       setError('Please enter a verification token');
       return;
     }
-
     setIsLoading(true);
     setError(null);
     setDocumentInfo(null);
     setHasPaid(false);
+    setClientSecret(null);
 
     try {
       const extractedToken = extractToken(token);
-      const response = await fetch(`/api/verify/${extractedToken}`);
-      
+      // Include verifierId from URL (Re-open link) or active verifier context
+      const effectiveVerifierId = verifierIdFromUrl || selectedVerifierId;
+      const authToken = await getAuthToken();
+      const headers: Record<string, string> = {};
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const qs = effectiveVerifierId ? `?verifierId=${effectiveVerifierId}` : '';
+      const response = await fetch(`/api/verify/${extractedToken}${qs}`, { headers });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to verify token');
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to verify token');
       }
-
       const data = await response.json();
       setDocumentInfo(data);
-      setToken(extractedToken); // Update token state with extracted value
-    } catch (error: any) {
-      console.error('Verification error:', error);
-      setError(error.message || 'Failed to verify token');
+      setToken(extractedToken);
+      if (data.hasAccess) {
+        setHasPaid(true);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to verify token');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handlePayment = async () => {
+  const handleInitiatePayment = async () => {
     if (!documentInfo) return;
-
-    setIsPaying(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/verify/${token}`, {
+      const authToken = await getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch('/api/stripe/create-intent', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ verifierEmail: verifierEmail.trim() || 'anonymous@example.com' }),
+        headers,
+        body: JSON.stringify({
+          amount: 200,
+          tokenIds: [documentInfo.tokenId],
+          verifierEmail: verifierEmail.trim() || undefined,
+          verifierId: selectedVerifierId || undefined,
+        }),
       });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Payment failed');
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to initiate payment');
       }
-
-      setHasPaid(true);
-    } catch (error: any) {
-      console.error('Payment error:', error);
-      setError(error.message || 'Payment failed');
-    } finally {
-      setIsPaying(false);
+      const { clientSecret: secret } = await res.json();
+      setClientSecret(secret);
+    } catch (err: any) {
+      setError(err.message || 'Failed to initiate payment');
     }
   };
 
   const handleDownload = async () => {
     if (!hasPaid || !documentInfo) return;
-
     setIsDownloading(true);
     try {
       const response = await fetch(`/api/verify/${token}/download`);
-      
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to get download URL');
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to get download URL');
       }
-
       const { url } = await response.json();
       window.open(url, '_blank');
-    } catch (error: any) {
-      console.error('Download error:', error);
-      await showAlert(error.message || 'Failed to download document');
+    } catch (err: any) {
+      await showAlert(err.message || 'Failed to download document');
     } finally {
       setIsDownloading(false);
     }
@@ -173,29 +268,23 @@ function VerifyPageContent() {
 
   const handleCompare = async () => {
     if (!selectedFile || !hasPaid || !documentInfo) return;
-
     setIsComparing(true);
     setError(null);
-
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-
       const response = await fetch(`/api/verify/${token}/compare`, {
         method: 'POST',
         body: formData,
       });
-      
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Comparison failed');
+        const err = await response.json();
+        throw new Error(err.error || 'Comparison failed');
       }
-
       const result = await response.json();
       setComparisonResult(result);
-    } catch (error: any) {
-      console.error('Comparison error:', error);
-      setError(error.message || 'Failed to compare files');
+    } catch (err: any) {
+      setError(err.message || 'Failed to compare files');
     } finally {
       setIsComparing(false);
     }
@@ -254,6 +343,14 @@ function VerifyPageContent() {
               to add multiple links and pay once for all.
             </p>
           </div>
+          {!user && (
+            <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-md text-sm">
+              <p className="text-yellow-900 dark:text-yellow-100">
+                Verifying anonymously — sign in to save records to your account.{' '}
+                <a href="/" className="underline font-medium">Sign in</a>
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Token Input */}
@@ -294,7 +391,7 @@ function VerifyPageContent() {
         {documentInfo && !hasPaid && (
           <div className="bg-card border rounded-lg p-6 mb-6">
             <h2 className="text-xl font-semibold mb-4">Step 2: Payment Required</h2>
-            
+
             <div className="mb-6 p-4 bg-muted rounded-lg">
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-primary/10 rounded-lg">
@@ -302,7 +399,7 @@ function VerifyPageContent() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold mb-1">
-                    {documentInfo.document.originalFilename || 
+                    {documentInfo.document.originalFilename ||
                      getDocumentTypeLabel(documentInfo.document.documentType)}
                   </h3>
                   <div className="text-sm text-muted-foreground space-y-1">
@@ -325,36 +422,38 @@ function VerifyPageContent() {
                   onChange={(e) => setVerifierEmail(e.target.value)}
                   placeholder="your@email.com (optional)"
                   className="w-full px-4 py-2 border rounded-md"
+                  disabled={!!clientSecret}
                 />
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-5 w-5 text-primary" />
-                  <span className="text-lg font-semibold">Payment Amount: $2.00</span>
-                </div>
-                <Button
-                  onClick={handlePayment}
-                  disabled={isPaying}
-                  size="lg"
-                >
-                  {isPaying ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <DollarSign className="h-4 w-4 mr-2" />
-                      Pay $2 (Mock)
-                    </>
-                  )}
-                </Button>
+              <div className="flex items-center gap-2 p-4 bg-muted rounded-lg">
+                <DollarSign className="h-5 w-5 text-primary" />
+                <span className="text-lg font-semibold">Payment Amount: $2.00</span>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                This is a mock payment. Click the button to instantly gain access to the document.
-              </p>
+              {!clientSecret ? (
+                <Button onClick={handleInitiatePayment} size="lg" className="w-full">
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Continue to Payment
+                </Button>
+              ) : (
+                <Elements stripe={stripePromise} options={{ clientSecret }}>
+                  <CheckoutForm
+                    token={token}
+                    verifierEmail={verifierEmail}
+                    verifierId={selectedVerifierId || undefined}
+                    getAuthToken={getAuthToken}
+                    onSuccess={() => setHasPaid(true)}
+                  />
+                </Elements>
+              )}
+
+              {error && (
+                <div className="p-3 bg-destructive/10 text-destructive rounded-md flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{error}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -380,7 +479,7 @@ function VerifyPageContent() {
                     </div>
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold mb-2">
-                        {documentInfo.document.originalFilename || 
+                        {documentInfo.document.originalFilename ||
                          getDocumentTypeLabel(documentInfo.document.documentType)}
                       </h3>
                       <div className="text-sm space-y-1">
@@ -470,8 +569,8 @@ function VerifyPageContent() {
 
                 {comparisonResult && (
                   <div className={`p-4 rounded-lg border ${
-                    comparisonResult.matches 
-                      ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800' 
+                    comparisonResult.matches
+                      ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800'
                       : 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800'
                   }`}>
                     <div className="flex items-start gap-3">
@@ -482,12 +581,12 @@ function VerifyPageContent() {
                       )}
                       <div className="flex-1">
                         <h3 className={`font-semibold mb-2 ${
-                          comparisonResult.matches 
-                            ? 'text-green-900 dark:text-green-100' 
+                          comparisonResult.matches
+                            ? 'text-green-900 dark:text-green-100'
                             : 'text-red-900 dark:text-red-100'
                         }`}>
-                          {comparisonResult.matches 
-                            ? '✓ Hash Match - Document is Authentic' 
+                          {comparisonResult.matches
+                            ? '✓ Hash Match - Document is Authentic'
                             : '✗ Hash Mismatch - Document May Be Modified'}
                         </h3>
                         <div className="text-sm space-y-1">
