@@ -60,6 +60,16 @@ export async function withAuth(
       }
     }
 
+    // Activate any pending memberships assigned to this email by an admin
+    if (firebaseUser.email && dbUser) {
+      await query(
+        `UPDATE docq_mint_school_memberships
+         SET user_id = $1, status = 'active'
+         WHERE LOWER(invite_email) = LOWER($2) AND status = 'invited' AND user_id IS NULL`,
+        [dbUser.id, firebaseUser.email]
+      );
+    }
+
     // Execute handler with auth context
     return await handler({
       firebaseUid: firebaseUser.uid,

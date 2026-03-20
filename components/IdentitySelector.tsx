@@ -102,14 +102,15 @@ export function IdentitySelector() {
 
       {/* Create organization buttons */}
       <div className="mb-6 flex gap-3">
-        <Button
+        {/* Hide create school org button */}
+        {/* <Button
           variant={!hasAnyMembership ? 'default' : 'outline'}
           onClick={() => router.push('/schools/create')}
           className="flex-1"
         >
           <Building2 className="mr-2 h-4 w-4" />
           Create School Org
-        </Button>
+        </Button> */}
         <Button
           variant="outline"
           onClick={() => router.push('/verifiers/create')}
