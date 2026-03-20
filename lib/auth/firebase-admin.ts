@@ -1,4 +1,30 @@
 import { NextRequest } from 'next/server';
+import * as admin from 'firebase-admin';
+
+function getAdminApp(): admin.app.App {
+  if (admin.apps.length > 0) {
+    return admin.apps[0]!;
+  }
+
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const privateKeyId = process.env.FIREBASE_PRIVATE_KEY_ID;
+
+  if (!projectId || !clientEmail || !privateKey || !privateKeyId) {
+    throw new Error('Missing Firebase Admin environment variables');
+  }
+
+  return admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId,
+      clientEmail,
+      privateKey,
+      // @ts-expect-error privateKeyId is valid but not in the type definition
+      privateKeyId,
+    }),
+  });
+}
 
 /**
  * Extract Firebase token from Authorization header
@@ -12,29 +38,18 @@ export function extractFirebaseToken(request: NextRequest): string | null {
 }
 
 /**
- * For MVP: Simple token validation
- * In production, you'd verify with Firebase Admin SDK
+ * Verify Firebase ID token using Firebase Admin SDK
  */
 export async function verifyFirebaseToken(token: string): Promise<{ uid: string; email?: string } | null> {
-  // MVP: We trust the client-side Firebase auth
-  // The token is just passed through for user identification
-  // In production, use Firebase Admin SDK to verify:
-  // const decodedToken = await admin.auth().verifyIdToken(token);
-  
   try {
-    // For MVP, decode the JWT payload without verification
-    // This is NOT secure for production
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-    
+    const app = getAdminApp();
+    const decodedToken = await admin.auth(app).verifyIdToken(token);
     return {
-      uid: payload.user_id || payload.sub,
-      email: payload.email,
+      uid: decodedToken.uid,
+      email: decodedToken.email,
     };
   } catch (error) {
-    console.error('Token decode error:', error);
+    console.error('Firebase token verification error:', error);
     return null;
   }
 }
