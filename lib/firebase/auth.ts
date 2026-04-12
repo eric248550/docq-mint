@@ -7,7 +7,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
-  getRedirectResult
+  getRedirectResult,
+  sendPasswordResetEmail
 } from "firebase/auth"
 import { auth } from "./config"
 import { useAuthStore } from "@/store/useAuthStore"
@@ -77,6 +78,16 @@ export const checkGoogleRedirectResult = async () => {
     return { user: null, error: null }
   } catch (error: any) {
     return { user: null, error: error.message }
+  }
+}
+
+// Send password reset email
+export const resetPassword = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email)
+    return { error: null }
+  } catch (error: any) {
+    return { error: error.message }
   }
 }
 

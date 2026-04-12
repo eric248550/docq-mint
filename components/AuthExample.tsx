@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { signIn, signUp, logout, signInWithGoogle } from '@/lib/firebase/auth'
+import { signIn, signUp, logout, signInWithGoogle, resetPassword } from '@/lib/firebase/auth'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Button } from '@/components/ui/button'
 import { LogIn, LogOut, UserPlus, ArrowRight } from 'lucide-react'
@@ -14,6 +14,9 @@ export function AuthExample() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetSent, setResetSent] = useState(false)
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -66,6 +69,22 @@ export function AuthExample() {
     }
   }
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    const { error: resetError } = await resetPassword(resetEmail)
+
+    if (resetError) {
+      setError(resetError)
+    } else {
+      setResetSent(true)
+    }
+
+    setLoading(false)
+  }
+
   const handleLogout = async () => {
     setLoading(true)
     const { error: logoutError } = await logout()
@@ -112,6 +131,76 @@ export function AuthExample() {
           <LogOut className="mr-2 h-4 w-4" />
           Sign Out
         </Button>
+      </div>
+    )
+  }
+
+  if (showForgotPassword) {
+    return (
+      <div className="flex flex-col gap-6 p-8 border rounded-lg max-w-md w-full bg-card">
+        <div className="text-center">
+          <h2 className="text-xl font-bold mb-1">Reset your password</h2>
+          <p className="text-sm text-muted-foreground">
+            Enter your email and we&apos;ll send you a reset link.
+          </p>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-destructive/10 text-destructive rounded-md text-sm">
+            {error}
+          </div>
+        )}
+
+        {resetSent ? (
+          <div className="flex flex-col gap-4">
+            <div className="p-3 bg-green-500/10 text-green-700 dark:text-green-400 rounded-md text-sm">
+              Check your inbox — a reset link has been sent to <strong>{resetEmail}</strong>.
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setShowForgotPassword(false)
+                setResetSent(false)
+                setResetEmail('')
+                setError(null)
+              }}
+            >
+              Back to sign in
+            </Button>
+          </div>
+        ) : (
+          <form className="flex flex-col gap-4" onSubmit={handleForgotPassword}>
+            <div>
+              <label htmlFor="reset-email" className="text-sm font-medium mb-1 block">
+                Email
+              </label>
+              <input
+                id="reset-email"
+                type="email"
+                placeholder="your@email.com"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
+                disabled={loading}
+              />
+            </div>
+            <Button type="submit" disabled={loading || !resetEmail} className="w-full">
+              {loading ? 'Sending...' : 'Send reset link'}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setShowForgotPassword(false)
+                setError(null)
+              }}
+            >
+              Back to sign in
+            </Button>
+          </form>
+        )}
       </div>
     )
   }
@@ -189,9 +278,22 @@ export function AuthExample() {
           </div>
           
           <div>
-            <label htmlFor="password" className="text-sm font-medium mb-1 block">
-              Password
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="password" className="text-sm font-medium">
+                Password
+              </label>
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => {
+                  setResetEmail(email)
+                  setError(null)
+                  setShowForgotPassword(true)
+                }}
+              >
+                Forgot password?
+              </button>
+            </div>
             <input
               id="password"
               type="password"
