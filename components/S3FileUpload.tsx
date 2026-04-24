@@ -3,16 +3,27 @@
 import { useRef, useState } from 'react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { Button } from '@/components/ui/button';
+import { MAX_FILE_UPLOAD_BYTES, MAX_FILE_UPLOAD_MB } from '@/lib/uploads/limits';
 
 export default function S3FileUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const { uploadFile, progress, reset } = useS3Upload();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > MAX_FILE_UPLOAD_BYTES) {
+        setSelectedFile(null);
+        setSelectionError(`File is too large. Max size is ${MAX_FILE_UPLOAD_MB}MB per file.`);
+        reset();
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
       setSelectedFile(file);
+      setSelectionError(null);
       reset();
     }
   };
@@ -83,11 +94,18 @@ export default function S3FileUpload() {
                   {' or drag and drop'}
                 </div>
                 <p className="text-xs text-gray-500">
-                  PNG, JPG, GIF, PDF up to 10MB
+                  PNG, JPG, GIF, PDF up to {MAX_FILE_UPLOAD_MB}MB
                 </p>
               </div>
             </label>
           </div>
+
+          {/* Selection Error */}
+          {selectionError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm text-red-700">{selectionError}</p>
+            </div>
+          )}
 
           {/* Selected File Info */}
           {selectedFile && (

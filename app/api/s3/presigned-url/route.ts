@@ -1,16 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generatePresignedUploadUrl, generateS3Key } from '@/lib/s3/presigned';
+import { MAX_FILE_UPLOAD_BYTES, MAX_FILE_UPLOAD_MB } from '@/lib/uploads/limits';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fileName, contentType, userId, folder } = body;
+    const { fileName, contentType, fileSize, userId, folder } = body;
 
     // Validate required fields
     if (!fileName || !contentType) {
       return NextResponse.json(
         { error: 'fileName and contentType are required' },
         { status: 400 }
+      );
+    }
+
+    if (typeof fileSize !== 'number' || !Number.isFinite(fileSize) || fileSize <= 0) {
+      return NextResponse.json(
+        { error: 'fileSize must be a positive number' },
+        { status: 400 }
+      );
+    }
+
+    if (fileSize > MAX_FILE_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `File is too large. Max size is ${MAX_FILE_UPLOAD_MB}MB per file.` },
+        { status: 413 }
       );
     }
 

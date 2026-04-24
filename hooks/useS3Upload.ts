@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MAX_FILE_UPLOAD_BYTES, MAX_FILE_UPLOAD_MB } from '@/lib/uploads/limits';
 
 export interface UploadProgress {
   fileName: string;
@@ -37,6 +38,10 @@ export function useS3Upload(): UseS3UploadReturn {
 
   const uploadFile = async (file: File, userId?: string, folder?: string): Promise<UploadResult | null> => {
     try {
+      if (file.size > MAX_FILE_UPLOAD_BYTES) {
+        throw new Error(`File is too large. Max size is ${MAX_FILE_UPLOAD_MB}MB per file.`);
+      }
+
       setProgress({
         fileName: file.name,
         progress: 0,
@@ -52,6 +57,7 @@ export function useS3Upload(): UseS3UploadReturn {
         body: JSON.stringify({
           fileName: file.name,
           contentType: file.type,
+          fileSize: file.size,
           userId,
           folder,
         }),
