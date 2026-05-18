@@ -510,7 +510,7 @@ export default function VerifierDashboardPage() {
                         ) : (
                           <>
                             <Download className="h-4 w-4 mr-2" />
-                            View Original Document
+                            View Official Document
                           </>
                         )}
                       </Button>
