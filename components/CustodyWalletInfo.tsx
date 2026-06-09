@@ -206,7 +206,7 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
             {balance ? (
               <div>
                 <div className="text-3xl font-bold text-primary">
-                  {balance.ada} Credit
+                  {parseFloat(balance.ada).toFixed(2)} Credit
                 </div>
               </div>
             ) : (
