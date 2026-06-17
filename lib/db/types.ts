@@ -25,6 +25,8 @@ export interface DBUser {
   id: string;
   firebase_uid: string | null;
   email: string | null;
+  first_name: string | null;
+  last_name: string | null;
   created_at: Date;
 }
 
@@ -33,6 +35,8 @@ export interface DBSchoolMembership {
   school_id: string;
   user_id: string | null;
   invite_email: string | null;
+  invite_first_name: string | null;
+  invite_last_name: string | null;
   role: string;
   status: string;
   created_at: Date;
@@ -111,6 +115,8 @@ export interface DBVerifierMembership {
   verifier_id: string;
   user_id: string | null;
   invite_email: string | null;
+  invite_first_name: string | null;
+  invite_last_name: string | null;
   role: string;
   status: string;
   created_at: Date;

@@ -10,8 +10,11 @@ import { LogIn, LogOut, UserPlus, ArrowRight } from 'lucide-react'
 export function AuthExample() {
   const { user, isLoading } = useAuthStore()
   const router = useRouter()
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
@@ -29,9 +32,23 @@ export function AuthExample() {
       setError(signUpError)
       setLoading(false)
     } else {
+      // Save name to DB right after account creation
+      if ((firstName || lastName) && newUser) {
+        try {
+          const token = await newUser.getIdToken()
+          await fetch('/api/users/me', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ first_name: firstName || null, last_name: lastName || null }),
+          })
+        } catch {
+          // Non-fatal — user can update name later in profile settings
+        }
+      }
       setEmail('')
       setPassword('')
-      // Redirect to identity selection after successful signup
+      setFirstName('')
+      setLastName('')
       router.push('/identity')
     }
   }
@@ -207,12 +224,28 @@ export function AuthExample() {
 
   return (
     <div className="flex flex-col gap-6 p-8 border rounded-lg max-w-md w-full bg-card">
-      <div className="text-center">
-        <p className="text-sm text-muted-foreground">
-          Sign in or create a new account
-        </p>
+      {/* Mode toggle */}
+      <div className="flex rounded-lg border overflow-hidden">
+        <button
+          type="button"
+          onClick={() => { setMode('signin'); setError(null) }}
+          className={`flex-1 py-2 text-sm font-medium transition-colors ${
+            mode === 'signin' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Sign In
+        </button>
+        <button
+          type="button"
+          onClick={() => { setMode('signup'); setError(null) }}
+          className={`flex-1 py-2 text-sm font-medium transition-colors ${
+            mode === 'signup' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Create Account
+        </button>
       </div>
-      
+
       {error && (
         <div className="p-3 bg-destructive/10 text-destructive rounded-md text-sm">
           {error}
@@ -261,7 +294,41 @@ export function AuthExample() {
         </div>
 
         {/* Email/Password Form */}
-        <form className="flex flex-col gap-4">
+        <form className="flex flex-col gap-4" onSubmit={mode === 'signup' ? handleSignUp : handleSignIn}>
+          {/* Name fields — sign-up only */}
+          {mode === 'signup' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="firstName" className="text-sm font-medium mb-1 block">
+                  First Name
+                </label>
+                <input
+                  id="firstName"
+                  type="text"
+                  placeholder="Jane"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label htmlFor="lastName" className="text-sm font-medium mb-1 block">
+                  Last Name
+                </label>
+                <input
+                  id="lastName"
+                  type="text"
+                  placeholder="Smith"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          )}
+
           <div>
             <label htmlFor="email" className="text-sm font-medium mb-1 block">
               Email
@@ -282,17 +349,19 @@ export function AuthExample() {
               <label htmlFor="password" className="text-sm font-medium">
                 Password
               </label>
-              <button
-                type="button"
-                className="text-xs text-primary hover:underline"
-                onClick={() => {
-                  setResetEmail(email)
-                  setError(null)
-                  setShowForgotPassword(true)
-                }}
-              >
-                Forgot password?
-              </button>
+              {mode === 'signin' && (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => {
+                    setResetEmail(email)
+                    setError(null)
+                    setShowForgotPassword(true)
+                  }}
+                >
+                  Forgot password?
+                </button>
+              )}
             </div>
             <input
               id="password"
@@ -305,36 +374,29 @@ export function AuthExample() {
             />
           </div>
           
-          <div className="flex gap-2 pt-2">
-            <Button 
-              onClick={handleSignIn} 
-              disabled={loading || !email || !password}
-              className="flex-1"
-            >
-              {loading ? 'Loading...' : (
-                <>
-                  <LogIn className="mr-2 h-4 w-4" />
-                  Sign In
-                </>
-              )}
-            </Button>
-            <Button 
-              onClick={handleSignUp} 
-              disabled={loading || !email || !password}
-              variant="outline"
-              className="flex-1"
-            >
-              <UserPlus className="mr-2 h-4 w-4" />
-              Sign Up
-            </Button>
-          </div>
+          <Button 
+            type="submit"
+            disabled={loading || !email || !password}
+            className="w-full"
+          >
+            {loading ? 'Loading...' : mode === 'signup' ? (
+              <>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Create Account
+              </>
+            ) : (
+              <>
+                <LogIn className="mr-2 h-4 w-4" />
+                Sign In
+              </>
+            )}
+          </Button>
         </form>
       </div>
       
-      <div className="text-xs text-muted-foreground text-center space-y-1">
-        <p>Password must be at least 6 characters</p>
-        <p className="text-primary">Email: test@example.com / password123</p>
-      </div>
+      <p className="text-xs text-muted-foreground text-center">
+        Password must be at least 6 characters
+      </p>
     </div>
   )
 }

@@ -51,6 +51,16 @@ export async function POST(request: NextRequest) {
         `UPDATE docq_mint_verifier_memberships SET user_id = $1, status = 'active' WHERE id = $2`,
         [dbUser.id, verifierMembership.id]
       );
+      // Copy invite name onto user if they don't have one yet
+      if (verifierMembership.invite_first_name || verifierMembership.invite_last_name) {
+        await queryOne(
+          `UPDATE docq_mint_users
+           SET first_name = COALESCE(first_name, $1),
+               last_name  = COALESCE(last_name,  $2)
+           WHERE id = $3`,
+          [verifierMembership.invite_first_name, verifierMembership.invite_last_name, dbUser.id]
+        );
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -76,6 +86,17 @@ export async function POST(request: NextRequest) {
        RETURNING *`,
       [dbUser.id, membership.id]
     );
+
+    // Copy invite name onto user if they don't have one yet
+    if (membership.invite_first_name || membership.invite_last_name) {
+      await queryOne(
+        `UPDATE docq_mint_users
+         SET first_name = COALESCE(first_name, $1),
+             last_name  = COALESCE(last_name,  $2)
+         WHERE id = $3`,
+        [membership.invite_first_name, membership.invite_last_name, dbUser.id]
+      );
+    }
 
     return NextResponse.json({ membership: updated });
   });

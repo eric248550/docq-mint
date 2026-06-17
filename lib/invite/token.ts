@@ -4,6 +4,8 @@ export interface InviteTokenPayload {
   schoolId?: string;
   verifierId?: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
   role: string;
   type: 'invite';
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVerifiers, useVerifierMembers } from '@/hooks/useVerifiers';
@@ -26,7 +26,11 @@ export function VerifierDashboard() {
   const { members, pagination, isLoading: membersLoading, refetch: refetchMembers, inviteMember, removeMember } = useVerifierMembers(selectedVerifier?.id || null);
 
   const [memberFilters, setMemberFilters] = useState<MemberFilters>({});
+  const [memberSearchInput, setMemberSearchInput] = useState('');
+  const memberSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteFirstName, setInviteFirstName] = useState('');
+  const [inviteLastName, setInviteLastName] = useState('');
   const [inviteRole, setInviteRole] = useState('viewer');
   const [isInviting, setIsInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -87,9 +91,16 @@ export function VerifierDashboard() {
     setInviteError(null);
     setInviteSuccess(null);
     try {
-      await inviteMember({ email: inviteEmail.trim(), role: inviteRole });
+      await inviteMember({
+        email: inviteEmail.trim(),
+        firstName: inviteFirstName.trim() || undefined,
+        lastName: inviteLastName.trim() || undefined,
+        role: inviteRole,
+      });
       setInviteSuccess(`Invite sent to ${inviteEmail}`);
       setInviteEmail('');
+      setInviteFirstName('');
+      setInviteLastName('');
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : 'Failed to send invite');
     } finally {
@@ -231,26 +242,44 @@ export function VerifierDashboard() {
             {/* Invite form */}
             <div className="border rounded-lg p-6">
               <h3 className="text-lg font-semibold mb-4">Invite Member</h3>
-              <form onSubmit={handleInvite} className="flex gap-3">
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="Email address"
-                  className="flex-1 px-3 py-2 border rounded-md"
-                  required
-                />
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="px-3 py-2 border rounded-md bg-background"
-                >
-                  <option value="viewer">Viewer</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <Button type="submit" disabled={isInviting}>
-                  {isInviting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Invite'}
-                </Button>
+              <form onSubmit={handleInvite} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    value={inviteFirstName}
+                    onChange={(e) => setInviteFirstName(e.target.value)}
+                    placeholder="First name"
+                    className="px-3 py-2 border rounded-md"
+                  />
+                  <input
+                    type="text"
+                    value={inviteLastName}
+                    onChange={(e) => setInviteLastName(e.target.value)}
+                    placeholder="Last name"
+                    className="px-3 py-2 border rounded-md"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="Email address"
+                    className="flex-1 px-3 py-2 border rounded-md"
+                    required
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="px-3 py-2 border rounded-md bg-background"
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <Button type="submit" disabled={isInviting}>
+                    {isInviting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Invite'}
+                  </Button>
+                </div>
               </form>
               {inviteError && <p className="mt-2 text-sm text-destructive">{inviteError}</p>}
               {inviteSuccess && <p className="mt-2 text-sm text-green-600">{inviteSuccess}</p>}
@@ -260,9 +289,16 @@ export function VerifierDashboard() {
             <div className="flex gap-3">
               <input
                 type="text"
-                placeholder="Search by email..."
-                value={memberFilters.search || ''}
-                onChange={(e) => setMemberFilters({ ...memberFilters, search: e.target.value, page: 1 })}
+                placeholder="Search by name or email..."
+                value={memberSearchInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setMemberSearchInput(val);
+                  if (memberSearchTimer.current) clearTimeout(memberSearchTimer.current);
+                  memberSearchTimer.current = setTimeout(() => {
+                    setMemberFilters(f => ({ ...f, search: val || undefined, page: 1 }));
+                  }, 400);
+                }}
                 className="flex-1 px-3 py-2 border rounded-md"
               />
               <select
@@ -278,22 +314,27 @@ export function VerifierDashboard() {
             </div>
 
             {/* Members list */}
-            {membersLoading ? (
-              <div className="flex items-center justify-center p-8">
-                <Loader2 className="h-6 w-6 animate-spin" />
-              </div>
-            ) : (
-              <div className="border rounded-lg divide-y">
-                {members.length === 0 ? (
-                  <div className="p-8 text-center text-muted-foreground">
-                    <Users className="h-10 w-10 mx-auto mb-2" />
-                    <p>No members found</p>
-                  </div>
-                ) : (
-                  members.map(member => (
+            <div className="border rounded-lg divide-y">
+              {membersLoading ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : members.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <Users className="h-10 w-10 mx-auto mb-2" />
+                  <p>No members found</p>
+                </div>
+              ) : (
+                members.map(member => (
                     <div key={member.id} className="flex items-center justify-between p-4">
                       <div>
-                        <p className="font-medium">
+                        {(member.first_name || member.last_name || member.invite_first_name || member.invite_last_name) && (
+                          <p className="font-medium">
+                            {[member.first_name || member.invite_first_name, member.last_name || member.invite_last_name]
+                              .filter(Boolean).join(' ')}
+                          </p>
+                        )}
+                        <p className={member.first_name || member.last_name || member.invite_first_name || member.invite_last_name ? 'text-sm text-muted-foreground' : 'font-medium'}>
                           {member.email || member.invite_email || 'Unknown'}
                         </p>
                         <div className="flex gap-2 mt-1">
@@ -322,7 +363,6 @@ export function VerifierDashboard() {
                   ))
                 )}
               </div>
-            )}
 
             {/* Pagination */}
             {pagination && pagination.totalPages > 1 && (

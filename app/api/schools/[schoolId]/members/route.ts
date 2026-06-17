@@ -49,7 +49,13 @@ export async function GET(
       qp.push(role);
     }
     if (search) {
-      conditions.push(`COALESCE(u.email, m.invite_email) ILIKE $${idx++}`);
+      conditions.push(
+        `(COALESCE(u.email, m.invite_email) ILIKE $${idx}
+          OR COALESCE(u.first_name, m.invite_first_name) ILIKE $${idx}
+          OR COALESCE(u.last_name,  m.invite_last_name)  ILIKE $${idx}
+          OR CONCAT_WS(' ', COALESCE(u.first_name, m.invite_first_name), COALESCE(u.last_name, m.invite_last_name)) ILIKE $${idx})`
+      );
+      idx++;
       qp.push(`%${search}%`);
     }
 
@@ -65,8 +71,8 @@ export async function GET(
     const total = parseInt(countRow?.count || '0', 10);
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
-    const data = await query<DBSchoolMembership & { email: string | null }>(
-      `SELECT m.*, u.email
+    const data = await query<DBSchoolMembership & { email: string | null; first_name: string | null; last_name: string | null }>(
+      `SELECT m.*, u.email, u.first_name, u.last_name
        FROM docq_mint_school_memberships m
        LEFT JOIN docq_mint_users u ON u.id = m.user_id
        WHERE ${where}
@@ -116,7 +122,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { email, role } = body;
+    const { email, role, firstName, lastName } = body;
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
@@ -158,14 +164,14 @@ export async function POST(
     // Create membership with 'invited' status — always requires explicit acceptance
     const membership = await queryOne<DBSchoolMembership>(
       `INSERT INTO docq_mint_school_memberships
-       (school_id, user_id, invite_email, role, status)
-       VALUES ($1, $2, $3, $4, 'invited')
+       (school_id, user_id, invite_email, invite_first_name, invite_last_name, role, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'invited')
        RETURNING *`,
-      [schoolId, null, email, role]
+      [schoolId, null, email, firstName || null, lastName || null, role]
     );
 
     // Generate JWT invite token and send email (fire-and-forget)
-    const inviteToken = generateInviteToken({ schoolId, email, role });
+    const inviteToken = generateInviteToken({ schoolId, email, firstName, lastName, role });
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const inviteUrl = `${appUrl}/invite?token=${inviteToken}`;
 

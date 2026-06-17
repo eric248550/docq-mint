@@ -96,7 +96,7 @@ export function useVerifiers() {
 
 export function useVerifierMembers(verifierId: string | null) {
   const { getAuthToken } = useAuthStore();
-  const [members, setMembers] = useState<(DBVerifierMembership & { email: string | null })[]>([]);
+  const [members, setMembers] = useState<(DBVerifierMembership & { email: string | null; first_name: string | null; last_name: string | null })[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,7 +126,7 @@ export function useVerifierMembers(verifierId: string | null) {
     }
   };
 
-  const inviteMember = async (data: { email?: string; role: string }) => {
+  const inviteMember = async (data: { email?: string; firstName?: string; lastName?: string; role: string }) => {
     if (!verifierId) throw new Error('No verifier selected');
     const token = await getAuthToken();
     if (!token) throw new Error('Not authenticated');

@@ -56,15 +56,16 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { email } = body;
+    const { email, first_name, last_name } = body;
 
-    // Update user
     const updatedUser = await queryOne(
       `UPDATE docq_mint_users 
-       SET email = COALESCE($1, email)
-       WHERE id = $2
+       SET email      = COALESCE($1, email),
+           first_name = COALESCE($2, first_name),
+           last_name  = COALESCE($3, last_name)
+       WHERE id = $4
        RETURNING *`,
-      [email || null, dbUser.id]
+      [email || null, first_name || null, last_name || null, dbUser.id]
     );
 
     return NextResponse.json({ user: updatedUser });

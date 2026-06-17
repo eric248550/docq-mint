@@ -36,6 +36,8 @@ CREATE TABLE docq_mint_users (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   firebase_uid       TEXT UNIQUE,             -- 🔑 Firebase UID
   email              TEXT,                    -- nullable (Firebase already validates)
+  first_name         TEXT,
+  last_name          TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -44,7 +46,9 @@ CREATE TABLE docq_mint_school_memberships (
 
   school_id  UUID NOT NULL REFERENCES docq_mint_schools(id),
   user_id    UUID REFERENCES docq_mint_users(id), -- nullable for invite
-  invite_email TEXT,                              -- optional for invite 
+  invite_email      TEXT,                         -- optional for invite
+  invite_first_name TEXT,
+  invite_last_name  TEXT,
 
   role       TEXT NOT NULL,
   -- owner | admin  | viewer | student | parent
@@ -171,7 +175,9 @@ CREATE TABLE docq_mint_verifier_memberships (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   verifier_id UUID NOT NULL REFERENCES docq_mint_verifiers(id) ON DELETE CASCADE,
   user_id UUID REFERENCES docq_mint_users(id), -- nullable for invite
-  invite_email TEXT, -- optional for invite
+  invite_email      TEXT,
+  invite_first_name TEXT,
+  invite_last_name  TEXT,
   role TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

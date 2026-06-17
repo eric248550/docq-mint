@@ -149,7 +149,7 @@ export function useSchools() {
 
 export function useSchoolMembers(schoolId: string | null) {
   const { getAuthToken } = useAuthStore();
-  const [members, setMembers] = useState<(DBSchoolMembership & { email: string | null })[]>([]);
+  const [members, setMembers] = useState<(DBSchoolMembership & { email: string | null; first_name: string | null; last_name: string | null })[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,7 +184,7 @@ export function useSchoolMembers(schoolId: string | null) {
     }
   };
 
-  const inviteMember = async (data: { email?: string; role: string }) => {
+  const inviteMember = async (data: { email?: string; firstName?: string; lastName?: string; role: string }) => {
     if (!schoolId) throw new Error('No school selected');
 
     const token = await getAuthToken();

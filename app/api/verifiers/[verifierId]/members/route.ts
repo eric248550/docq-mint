@@ -34,7 +34,13 @@ export async function GET(
 
     if (role) { conditions.push(`m.role = $${idx++}`); qp.push(role); }
     if (search) {
-      conditions.push(`COALESCE(u.email, m.invite_email) ILIKE $${idx++}`);
+      conditions.push(
+        `(COALESCE(u.email, m.invite_email) ILIKE $${idx}
+          OR COALESCE(u.first_name, m.invite_first_name) ILIKE $${idx}
+          OR COALESCE(u.last_name,  m.invite_last_name)  ILIKE $${idx}
+          OR CONCAT_WS(' ', COALESCE(u.first_name, m.invite_first_name), COALESCE(u.last_name, m.invite_last_name)) ILIKE $${idx})`
+      );
+      idx++;
       qp.push(`%${search}%`);
     }
 
@@ -50,8 +56,8 @@ export async function GET(
     const total = parseInt(countRow?.count || '0', 10);
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
-    const data = await query<DBVerifierMembership & { email: string | null }>(
-      `SELECT m.*, u.email
+    const data = await query<DBVerifierMembership & { email: string | null; first_name: string | null; last_name: string | null }>(
+      `SELECT m.*, u.email, u.first_name, u.last_name
        FROM docq_mint_verifier_memberships m
        LEFT JOIN docq_mint_users u ON u.id = m.user_id
        WHERE ${where}
@@ -90,7 +96,7 @@ export async function POST(
     if (!verifier) return NextResponse.json({ error: 'Verifier not found' }, { status: 404 });
 
     const body = await request.json();
-    const { email, role } = body;
+    const { email, role, firstName, lastName } = body;
 
     if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 });
 
@@ -123,13 +129,13 @@ export async function POST(
 
     const membership = await queryOne<DBVerifierMembership>(
       `INSERT INTO docq_mint_verifier_memberships
-       (verifier_id, user_id, invite_email, role, status)
-       VALUES ($1, $2, $3, $4, 'invited')
+       (verifier_id, user_id, invite_email, invite_first_name, invite_last_name, role, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'invited')
        RETURNING *`,
-      [verifierId, null, email, role]
+      [verifierId, null, email, firstName || null, lastName || null, role]
     );
 
-    const inviteToken = generateInviteToken({ verifierId, email, role });
+    const inviteToken = generateInviteToken({ verifierId, email, firstName, lastName, role });
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const inviteUrl = `${appUrl}/invite?token=${inviteToken}`;
 

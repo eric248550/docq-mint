@@ -8,7 +8,7 @@ import { SchoolAdminDashboard } from '@/components/SchoolAdminDashboard';
 import { StudentDashboard } from '@/components/StudentDashboard';
 import { VerifierDashboard } from '@/components/VerifierDashboard';
 import { Button } from '@/components/ui/button';
-import { Loader2, LogOut } from 'lucide-react';
+import { Loader2, LogOut, User } from 'lucide-react';
 import { logout } from '@/lib/firebase/auth';
 
 export default function DashboardPage() {
@@ -53,6 +53,9 @@ export default function DashboardPage() {
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleChangeIdentity}>
               Change Role
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => router.push('/settings/profile')} title="Profile settings">
+              <User className="h-4 w-4" />
             </Button>
             <Button variant="outline" onClick={handleLogout}>
               <LogOut className="h-4 w-4 mr-2" />

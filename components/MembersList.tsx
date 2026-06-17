@@ -28,6 +28,8 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
   const { modal, showAlert, showConfirm, closeModal } = useModal();
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteFirstName, setInviteFirstName] = useState('');
+  const [inviteLastName, setInviteLastName] = useState('');
   const [inviteRole, setInviteRole] = useState('student');
   const [isInviting, setIsInviting] = useState(false);
 
@@ -74,10 +76,14 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
     try {
       await inviteMember({
         email: inviteEmail || undefined,
+        firstName: inviteFirstName || undefined,
+        lastName: inviteLastName || undefined,
         role: inviteRole,
       });
       setShowInviteForm(false);
       setInviteEmail('');
+      setInviteFirstName('');
+      setInviteLastName('');
       setInviteRole('student');
       // Refetch current view
       if (limit) {
@@ -104,14 +110,6 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
       await showAlert('Failed to remove member');
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -151,7 +149,7 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search by email..."
+              placeholder="Search by name or email..."
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               className="w-full pl-8 pr-3 py-2 text-sm border rounded-md bg-background"
@@ -183,6 +181,28 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
 
       {showInviteForm && (
         <form onSubmit={handleInvite} className="border rounded-lg p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">First Name</label>
+              <input
+                type="text"
+                value={inviteFirstName}
+                onChange={(e) => setInviteFirstName(e.target.value)}
+                placeholder="Jane"
+                className="w-full mt-1 px-3 py-2 border rounded-md"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Last Name</label>
+              <input
+                type="text"
+                value={inviteLastName}
+                onChange={(e) => setInviteLastName(e.target.value)}
+                placeholder="Smith"
+                className="w-full mt-1 px-3 py-2 border rounded-md"
+              />
+            </div>
+          </div>
           <div>
             <label className="text-sm font-medium">Email</label>
             <input
@@ -222,7 +242,11 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
         </form>
       )}
 
-      {members.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center p-8 border rounded-lg">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : members.length === 0 ? (
         <div className="text-center p-8 border rounded-lg">
           <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
           <p className="text-muted-foreground">No members found</p>
@@ -235,7 +259,13 @@ export function MembersList({ schoolId, limit }: MembersListProps) {
               className="flex items-center justify-between p-4 border rounded-lg hover:border-primary/50 transition-colors"
             >
               <div className="flex-1">
-                <p className="font-medium">
+                {(member.first_name || member.last_name || member.invite_first_name || member.invite_last_name) && (
+                  <p className="font-medium">
+                    {[member.first_name || member.invite_first_name, member.last_name || member.invite_last_name]
+                      .filter(Boolean).join(' ')}
+                  </p>
+                )}
+                <p className={member.first_name || member.last_name || member.invite_first_name || member.invite_last_name ? 'text-sm text-muted-foreground' : 'font-medium'}>
                   {member.email || member.invite_email || 'Unnamed member'}
                 </p>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
