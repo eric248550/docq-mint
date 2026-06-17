@@ -36,7 +36,6 @@ export function SchoolAdminDashboard() {
           
           {/* Custody Wallet Section */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">Custody Wallet</h3>
             <CustodyWalletInfo schoolId={selectedSchoolId} />
           </div>
 

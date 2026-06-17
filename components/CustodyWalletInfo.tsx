@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { authenticatedRequest } from '@/lib/api/client';
 import { DBWallet } from '@/lib/db/types';
 import { Button } from '@/components/ui/button';
-import { Wallet, Copy, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { Wallet, Loader2, AlertCircle } from 'lucide-react';
 
 interface CustodyWalletInfoProps {
   schoolId: string;
@@ -22,7 +22,6 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
   const [balance, setBalance] = useState<WalletBalance | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -85,18 +84,6 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
     }
   };
 
-  const handleCopyAddress = async () => {
-    if (!wallet?.address) return;
-
-    try {
-      await navigator.clipboard.writeText(wallet.address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy address:', error);
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="border rounded-lg p-6">
@@ -126,7 +113,6 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
             <Wallet className="h-6 w-6 text-muted-foreground" />
           </div>
           <div>
-            <h3 className="font-semibold text-lg mb-1">Custody Wallet</h3>
             <p className="text-sm text-muted-foreground">
               No issuer wallet configured for this school.
             </p>
@@ -138,51 +124,8 @@ export function CustodyWalletInfo({ schoolId }: CustodyWalletInfoProps) {
 
   return (
     <div className="border rounded-lg p-6 bg-gradient-to-br from-primary/5 to-primary/10">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start gap-4">
-          <div className="p-3 bg-primary/10 rounded-lg">
-            <Wallet className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-lg">Custody Wallet</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              {wallet.network} • {wallet.wallet_role}
-            </p>
-          </div>
-        </div>
-      </div>
 
       <div className="space-y-4">
-        {/* Wallet Address */}
-        <div>
-          <label className="text-sm font-medium text-muted-foreground block mb-2">
-            Wallet Address
-          </label>
-          <div className="flex items-center gap-2 p-3 bg-background border rounded-lg">
-            <code className="text-sm flex-1 break-all font-mono">
-              {wallet.address}
-            </code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCopyAddress}
-              className="shrink-0"
-            >
-              {copied ? (
-                <>
-                  <CheckCircle2 className="h-4 w-4 mr-1" />
-                  Copied
-                </>
-              ) : (
-                <>
-                  <Copy className="h-4 w-4 mr-1" />
-                  Copy
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-
         {/* Balance */}
         <div>
           <div className="flex items-center justify-between mb-2">
