@@ -168,7 +168,7 @@ export function useSchoolMembers(schoolId: string | null) {
       const url = `/api/schools/${schoolId}/members${qs ? `?${qs}` : ''}`;
 
       const response = await authenticatedRequest<{
-        data: (DBSchoolMembership & { email: string | null })[];
+        data: (DBSchoolMembership & { email: string | null; first_name: string | null; last_name: string | null })[];
         pagination: Pagination;
       }>(url, token);
 

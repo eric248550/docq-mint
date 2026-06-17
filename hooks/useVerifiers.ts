@@ -111,7 +111,7 @@ export function useVerifierMembers(verifierId: string | null) {
       const qs = buildParams(filters as Record<string, string | number | undefined>);
       const url = `/api/verifiers/${verifierId}/members${qs ? `?${qs}` : ''}`;
       const response = await authenticatedRequest<{
-        data: (DBVerifierMembership & { email: string | null })[];
+        data: (DBVerifierMembership & { email: string | null; first_name: string | null; last_name: string | null })[];
         pagination: Pagination;
       }>(url, token);
       if (response.error) throw new Error(response.error);
