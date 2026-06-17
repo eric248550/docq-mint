@@ -73,19 +73,32 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { name, country_code, compliance_region } = body;
+    const { name, country_code, compliance_region, logo_url } = body;
+
+    // Only owners can update the org logo
+    if (logo_url !== undefined) {
+      const isOwner = await checkSchoolAccess(dbUser.id, schoolId, ['owner']);
+      if (!isOwner) {
+        return NextResponse.json(
+          { error: 'Only the org owner can update the logo' },
+          { status: 403 }
+        );
+      }
+    }
 
     const school = await queryOne<DBSchool>(
       `UPDATE docq_mint_schools 
        SET name = COALESCE($1, name),
            country_code = COALESCE($2, country_code),
-           compliance_region = COALESCE($3, compliance_region)
-       WHERE id = $4
+           compliance_region = COALESCE($3, compliance_region),
+           logo_url = CASE WHEN $4::text IS NOT NULL THEN $4::text ELSE logo_url END
+       WHERE id = $5
        RETURNING *`,
       [
         name || null,
         country_code || null,
         compliance_region || null,
+        logo_url || null,
         schoolId
       ]
     );

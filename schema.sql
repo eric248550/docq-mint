@@ -23,6 +23,7 @@ CREATE TABLE docq_mint_schools (
   name               TEXT NOT NULL,
   country_code       TEXT,                  -- ISO 3166-1 alpha-2 code (e.g. US, CA, UK, etc.)
   compliance_region  TEXT,                  -- FERPA | GDPR | NZPA | MIXED
+  logo_url           TEXT,                  -- S3 URL for org logo image
   custody_wallet_id  UUID REFERENCES docq_mint_wallets(id),                  -- nullable (for schools that are not custodians)
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -206,3 +207,6 @@ CREATE TABLE docq_mint_payments (
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration: add logo_url to existing schools table
+-- ALTER TABLE docq_mint_schools ADD COLUMN IF NOT EXISTS logo_url TEXT;

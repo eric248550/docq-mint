@@ -17,6 +17,7 @@ export interface DBSchool {
   name: string;
   country_code: string | null;
   compliance_region: string | null;
+  logo_url: string | null;
   custody_wallet_id: string | null;
   created_at: Date;
 }
