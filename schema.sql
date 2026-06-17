@@ -73,7 +73,11 @@ CREATE TABLE docq_mint_documents (
   school_id         UUID REFERENCES docq_mint_schools(id),                    -- nullable (ref: docq_mint_schools.id)
   student_id        UUID REFERENCES docq_mint_users(id),                    -- nullable (ref: could be a docq_mint_users.id or null)
 
-  document_type     TEXT NOT NULL,           -- report_card | transcript | certificate | diploma | others
+  document_type     TEXT NOT NULL,           -- Enrollment/Identity: birth_certificate | national_id | address_proof | passport_photo
+                                             -- Transfer/Admissions: transfer_certificate
+                                             -- Academic: report_card | transcript | cumulative_record | diploma | certificate
+                                             -- Health: health_fitness_card
+                                             -- Catch-all: others
   file_storage_provider TEXT NOT NULL,        -- s3 | r2 | gcs | ipfs
   file_storage_url  TEXT NOT NULL,           -- https://s3.amazonaws.com/docq-mint/documents/1234567890.pdf
   file_hash         TEXT NOT NULL,           -- SHA256 / Blake2b (file-level)

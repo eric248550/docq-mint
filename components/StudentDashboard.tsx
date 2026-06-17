@@ -94,11 +94,28 @@ export function StudentDashboard() {
           className="px-3 py-2 text-sm border rounded-md bg-background"
         >
           <option value="">All Types</option>
-          <option value="report_card">Report Card</option>
-          <option value="transcript">Transcript</option>
-          <option value="certificate">Certificate</option>
-          <option value="diploma">Diploma</option>
-          <option value="others">Others</option>
+          <optgroup label="Enrollment / Identity">
+            <option value="birth_certificate">Birth Certificate</option>
+            <option value="national_id">National ID (Aadhar / SSN)</option>
+            <option value="address_proof">Address Proof</option>
+            <option value="passport_photo">Passport Photo</option>
+          </optgroup>
+          <optgroup label="Transfer / Admissions">
+            <option value="transfer_certificate">Transfer Certificate (LC/TC)</option>
+          </optgroup>
+          <optgroup label="Academic Records">
+            <option value="report_card">Report Card / Marksheet</option>
+            <option value="transcript">Transcript</option>
+            <option value="cumulative_record">Cumulative Record</option>
+            <option value="diploma">Diploma</option>
+            <option value="certificate">Certificate</option>
+          </optgroup>
+          <optgroup label="Health">
+            <option value="health_fitness_card">Health &amp; Fitness Card</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option value="others">Others</option>
+          </optgroup>
         </select>
         <Button
           variant="outline"
@@ -173,11 +190,23 @@ function DocumentCard({ document }: { document: DBDocument }) {
 
   const getDocumentTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      report_card: 'Report Card',
-      transcript: 'Transcript',
-      certificate: 'Certificate',
-      diploma: 'Diploma',
-      others: 'Document',
+      // Enrollment / Identity
+      birth_certificate:   'Birth Certificate',
+      national_id:         'National ID (Aadhar / SSN)',
+      address_proof:       'Address Proof',
+      passport_photo:      'Passport Photo',
+      // Transfer / Admissions
+      transfer_certificate: 'Transfer Certificate (LC/TC)',
+      // Academic Records
+      report_card:         'Report Card / Marksheet',
+      transcript:          'Transcript',
+      cumulative_record:   'Cumulative Record',
+      diploma:             'Diploma',
+      certificate:         'Certificate',
+      // Health
+      health_fitness_card: 'Health & Fitness Card',
+      // Catch-all
+      others:              'Others',
     };
     return labels[type] || type;
   };
