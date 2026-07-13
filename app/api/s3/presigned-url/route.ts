@@ -1,14 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generatePresignedUploadUrl, generateS3Key } from '@/lib/s3/presigned';
-import { MAX_FILE_UPLOAD_BYTES, MAX_FILE_UPLOAD_MB } from '@/lib/uploads/limits';
+import {
+  ALLOWED_UPLOAD_MIME_TYPES,
+  EXTENSION_MIME_MAP,
+  getFileExtension,
+  MAX_FILE_UPLOAD_BYTES,
+  MAX_FILE_UPLOAD_MB,
+} from '@/lib/uploads/limits';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fileName, contentType, fileSize, userId, folder } = body;
+    const { fileName, fileSize, userId, folder } = body;
+    let { contentType } = body;
 
     // Validate required fields
-    if (!fileName || !contentType) {
+    if (!fileName) {
+      return NextResponse.json(
+        { error: 'fileName is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!contentType || !(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(contentType)) {
+      const mapped = EXTENSION_MIME_MAP[getFileExtension(fileName)];
+      if (mapped) contentType = mapped;
+    }
+
+    if (!contentType) {
       return NextResponse.json(
         { error: 'fileName and contentType are required' },
         { status: 400 }
@@ -29,21 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate content type (optional - add your own restrictions)
-    const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'application/pdf',
-      'text/plain',
-      'application/json',
-      'text/csv',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ];
-
-    if (!allowedTypes.includes(contentType)) {
+    if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(contentType)) {
       return NextResponse.json(
         { error: `Content type ${contentType} is not allowed` },
         { status: 400 }

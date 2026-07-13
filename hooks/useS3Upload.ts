@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MAX_FILE_UPLOAD_BYTES, MAX_FILE_UPLOAD_MB } from '@/lib/uploads/limits';
+import { uploadFileToS3, type S3UploadResult } from '@/lib/uploads/s3-client-upload';
 
 export interface UploadProgress {
   fileName: string;
@@ -36,76 +36,31 @@ export function useS3Upload(): UseS3UploadReturn {
     });
   };
 
-  const uploadFile = async (file: File, userId?: string, folder?: string): Promise<UploadResult | null> => {
+  const uploadFile = async (
+    file: File,
+    userId?: string,
+    folder?: string
+  ): Promise<UploadResult | null> => {
     try {
-      if (file.size > MAX_FILE_UPLOAD_BYTES) {
-        throw new Error(`File is too large. Max size is ${MAX_FILE_UPLOAD_MB}MB per file.`);
-      }
-
       setProgress({
         fileName: file.name,
         progress: 0,
         status: 'uploading',
       });
 
-      // Step 1: Get presigned URL from backend
-      const presignedResponse = await fetch('/api/s3/presigned-url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          fileSize: file.size,
-          userId,
-          folder,
-        }),
-      });
+      setProgress((prev) => ({ ...prev, progress: 30 }));
 
-      if (!presignedResponse.ok) {
-        const error = await presignedResponse.json();
-        throw new Error(error.error || 'Failed to get presigned URL');
-      }
+      const result: S3UploadResult = await uploadFileToS3(file, { userId, folder });
 
-      const { url, key, bucket, headers } = await presignedResponse.json();
-
-      setProgress(prev => ({ ...prev, progress: 30 }));
-
-      // Step 2: Upload file directly to S3 using presigned URL
-      const uploadResponse = await fetch(url, {
-        method: 'PUT',
-        body: file,
-        headers: headers || {
-          'Content-Type': file.type,
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        // Get detailed error from S3
-        const errorText = await uploadResponse.text();
-        console.error('S3 Upload Error:', {
-          status: uploadResponse.status,
-          statusText: uploadResponse.statusText,
-          body: errorText,
-        });
-        throw new Error(`Failed to upload file to S3: ${uploadResponse.status} ${errorText}`);
-      }
-
-      setProgress(prev => ({ ...prev, progress: 100 }));
-
-      // Step 3: Success
-      const s3Url = `https://${bucket}.s3.amazonaws.com/${key}`;
-      
       setProgress({
         fileName: file.name,
         progress: 100,
         status: 'success',
-        s3Key: key,
-        s3Url,
+        s3Key: result.key,
+        s3Url: result.url,
       });
-      
-      return { url: s3Url, key };
+
+      return result;
     } catch (error) {
       console.error('Upload error:', error);
       setProgress({
@@ -124,4 +79,3 @@ export function useS3Upload(): UseS3UploadReturn {
     reset,
   };
 }
-

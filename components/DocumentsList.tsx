@@ -3,12 +3,23 @@
 import { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchoolDocuments, useSchoolMembers, useSchoolTags } from '@/hooks/useSchools';
-import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown, Tag as TagIcon, X, Plus, Check } from 'lucide-react';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown, Tag as TagIcon, X, Plus, Check, FolderOpen, AlertCircle, RotateCcw } from 'lucide-react';
 import { DBDocument, DBTag } from '@/lib/db/types';
 import { Modal, useModal } from '@/components/ui/alert-modal';
+import { getFileSizeLimitMB, resolveContentType } from '@/lib/uploads/limits';
+import {
+  BATCH_UPLOAD_CONCURRENCY,
+  collectFilesFromDataTransfer,
+  collectFilesFromFileList,
+  getEffectiveUploadMeta,
+  partitionBySize,
+  runWithConcurrency,
+  toQueueItems,
+  type UploadQueueItem,
+} from '@/lib/uploads/batch-files';
+import { uploadFileToS3 } from '@/lib/uploads/s3-client-upload';
 
 // Module-level helper — shared by DocumentsList and DocumentRow
 function getDocumentTypeLabel(type: string): string {
@@ -32,6 +43,35 @@ function getDocumentTypeLabel(type: string): string {
     others:               'Others',
   };
   return labels[type] || type;
+}
+
+function DocumentTypeOptions() {
+  return (
+    <>
+      <optgroup label="Enrollment / Identity">
+        <option value="birth_certificate">Birth Certificate</option>
+        <option value="national_id">National ID (Aadhar / SSN)</option>
+        <option value="address_proof">Address Proof</option>
+        <option value="passport_photo">Passport Photo</option>
+      </optgroup>
+      <optgroup label="Transfer / Admissions">
+        <option value="transfer_certificate">Transfer Certificate (LC/TC)</option>
+      </optgroup>
+      <optgroup label="Academic Records">
+        <option value="report_card">Report Card / Marksheet</option>
+        <option value="transcript">Transcript</option>
+        <option value="cumulative_record">Cumulative Record</option>
+        <option value="diploma">Diploma</option>
+        <option value="certificate">Certificate</option>
+      </optgroup>
+      <optgroup label="Health">
+        <option value="health_fitness_card">Health &amp; Fitness Card</option>
+      </optgroup>
+      <optgroup label="Other">
+        <option value="others">Others</option>
+      </optgroup>
+    </>
+  );
 }
 
 interface DocumentsListProps {
@@ -60,21 +100,22 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const { documents, pagination, isLoading, error, createDocument, updateDocument, deleteDocument, refetch } = useSchoolDocuments(schoolId);
   const { members, refetch: refetchMembers } = useSchoolMembers(schoolId);
   const { tags, refetch: refetchTags, createTag } = useSchoolTags(schoolId);
-  const { uploadFile, progress, reset } = useS3Upload();
   const { getAuthToken } = useAuthStore();
 
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [uploadStudentSearch, setUploadStudentSearch] = useState('');
   const [showStudentDropdown, setShowStudentDropdown] = useState(false);
   const uploadStudentRef = useRef<HTMLDivElement>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [formData, setFormData] = useState({
     student_id: '',
     document_type: 'report_card',
   });
   const [uploadTagIds, setUploadTagIds] = useState<string[]>([]);
-  const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
+  const [isBatchUploading, setIsBatchUploading] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
   const [mintingDocId, setMintingDocId] = useState<string | null>(null);
 
@@ -83,36 +124,87 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   // Only show students who have actually signed up (user_id is not null)
   const students = members.filter(m => m.role === 'student' && m.user_id !== null);
 
-  // ─── File size limits per document type ────────────────────────────────────
-  const FILE_SIZE_LIMITS_MB: Record<string, number> = {
-    report_card:       3,
-    cumulative_record: 30,
-    diploma:           3,
+  const updateQueueItem = (id: string, patch: Partial<UploadQueueItem>) => {
+    setUploadQueue((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
-  const DEFAULT_FILE_SIZE_MB = 2;
 
-  const getFileSizeLimitMB = (docType: string) =>
-    FILE_SIZE_LIMITS_MB[docType] ?? DEFAULT_FILE_SIZE_MB;
+  const batchDefaults = {
+    student_id: formData.student_id,
+    document_type: formData.document_type,
+    tag_ids: uploadTagIds,
+  };
 
-  const getFileSizeLimitBytes = (docType: string) =>
-    getFileSizeLimitMB(docType) * 1024 * 1024;
+  // Changing batch defaults re-applies them to every file in the queue
+  useEffect(() => {
+    setUploadQueue((prev) => {
+      if (prev.length === 0) return prev;
+      return prev.map((item) => ({
+        ...item,
+        customize: false,
+        student_id: formData.student_id,
+        document_type: formData.document_type,
+        tag_ids: [...uploadTagIds],
+      }));
+    });
+  }, [formData.student_id, formData.document_type, uploadTagIds]);
 
-  const validateFileSize = async (files: File[], docType: string): Promise<File[]> => {
-    const limitBytes = getFileSizeLimitBytes(docType);
-    const limitMB = getFileSizeLimitMB(docType);
-    const oversized = files.filter(f => f.size > limitBytes);
-    const valid = files.filter(f => f.size <= limitBytes);
+  const beginCustomize = (item: UploadQueueItem, patch: Partial<UploadQueueItem>) => {
+    const effective = getEffectiveUploadMeta(item, batchDefaults);
+    updateQueueItem(item.id, {
+      customize: true,
+      student_id: effective.student_id,
+      document_type: effective.document_type,
+      tag_ids: [...effective.tag_ids],
+      ...patch,
+    });
+  };
+
+  const appendToQueue = async (incoming: UploadQueueItem[]) => {
+    if (incoming.length === 0) return;
+
+    const { valid, oversized } = partitionBySize(
+      incoming,
+      (item) => getEffectiveUploadMeta(item, batchDefaults).document_type
+    );
     if (oversized.length > 0) {
-      const names = oversized.map(f => f.name).join(', ');
+      const names = oversized.map((item) => {
+        const docType = getEffectiveUploadMeta(item, batchDefaults).document_type;
+        return `${item.relativePath} (${getFileSizeLimitMB(docType)} MB max)`;
+      }).join(', ');
       await showAlert(
-        `${oversized.length} file(s) exceed the ${limitMB} MB limit for "${getDocumentTypeLabel(docType)}" and were removed:\n${names}`
+        `${oversized.length} file(s) exceed the size limit for their document type and were removed:\n${names}`
       );
     }
-    return valid;
+    if (valid.length > 0) {
+      setUploadQueue((prev) => [...prev, ...valid]);
+    }
   };
-  // ───────────────────────────────────────────────────────────────────────────
 
-  const isUploading = progress.status === 'uploading' || uploadingFiles.size > 0;
+  const reportCollectionFeedback = async (
+    rejectedType: number,
+    skippedJunk: number
+  ) => {
+    const messages: string[] = [];
+    if (rejectedType > 0) {
+      messages.push(
+        `${rejectedType} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`
+      );
+    }
+    if (skippedJunk > 0) {
+      messages.push(`${skippedJunk} system/hidden file(s) were skipped.`);
+    }
+    if (messages.length > 0) {
+      await showAlert(messages.join('\n\n'));
+    }
+  };
+
+  const isUploading = isBatchUploading;
+  const pendingOrFailedCount = uploadQueue.filter(
+    (item) => item.status === 'pending' || item.status === 'error'
+  ).length;
+  const successCount = uploadQueue.filter((item) => item.status === 'success').length;
+  const failedCount = uploadQueue.filter((item) => item.status === 'error').length;
+  const uploadingCount = uploadQueue.filter((item) => item.status === 'uploading').length;
 
   // Get unminted documents
   const unmintedDocuments = documents.filter(doc => !doc.is_published);
@@ -139,6 +231,14 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       setUploadTagIds([]);
       handleSearchStudents('');
     }
+  }, [showUploadForm]);
+
+  // Enable folder selection on the hidden folder input (non-standard attribute)
+  useEffect(() => {
+    const input = folderInputRef.current;
+    if (!input) return;
+    input.setAttribute('webkitdirectory', '');
+    input.setAttribute('directory', '');
   }, [showUploadForm]);
 
   // Click-outside closes the student dropdown
@@ -207,15 +307,17 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const newFiles = await validateFileSize(
-        Array.from(e.target.files),
-        formData.document_type
-      );
-      if (newFiles.length > 0) setSelectedFiles(prev => [...prev, ...newFiles]);
-    }
-    // Reset input so the same file can be re-selected after being rejected
+    const { files, skippedJunk, rejectedType } = collectFilesFromFileList(e.target.files);
     e.target.value = '';
+    await reportCollectionFeedback(rejectedType, skippedJunk);
+    await appendToQueue(toQueueItems(files, batchDefaults));
+  };
+
+  const handleFolderChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { files, skippedJunk, rejectedType } = collectFilesFromFileList(e.target.files);
+    e.target.value = '';
+    await reportCollectionFeedback(rejectedType, skippedJunk);
+    await appendToQueue(toQueueItems(files, batchDefaults));
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -235,24 +337,22 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     e.stopPropagation();
     setIsDragging(false);
 
-    const files = Array.from(e.dataTransfer.files);
-    const typeAccepted = files.filter(file => {
-      const extension = file.name.split('.').pop()?.toLowerCase();
-      return ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'].includes(extension || '');
-    });
-
-    if (typeAccepted.length < files.length) {
-      await showAlert(`${files.length - typeAccepted.length} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`);
-    }
-
-    const sizeAccepted = await validateFileSize(typeAccepted, formData.document_type);
-    if (sizeAccepted.length > 0) {
-      setSelectedFiles(prev => [...prev, ...sizeAccepted]);
-    }
+    const { files, skippedJunk, rejectedType } = await collectFilesFromDataTransfer(e.dataTransfer);
+    await reportCollectionFeedback(rejectedType, skippedJunk);
+    await appendToQueue(toQueueItems(files, batchDefaults));
   };
 
-  const removeFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  const removeQueueItem = (id: string) => {
+    setUploadQueue((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const resetUploadForm = () => {
+    setShowUploadForm(false);
+    setUploadQueue([]);
+    setUploadStudentSearch('');
+    setUploadTagIds([]);
+    setFormData({ student_id: '', document_type: 'report_card' });
+    setIsBatchUploading(false);
   };
 
   const calculateFileHash = async (file: File): Promise<string> => {
@@ -262,101 +362,152 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
+  const uploadQueueItems = async (items: UploadQueueItem[]) => {
+    if (items.length === 0) return { success: 0, failed: 0 };
+
+    const defaults = {
+      student_id: formData.student_id,
+      document_type: formData.document_type,
+      tag_ids: uploadTagIds,
+    };
+
+    // Re-validate sizes against each file's effective document type
+    const { valid, oversized } = partitionBySize(
+      items,
+      (item) => getEffectiveUploadMeta(item, defaults).document_type
+    );
+    if (oversized.length > 0) {
+      for (const item of oversized) {
+        const docType = getEffectiveUploadMeta(item, defaults).document_type;
+        const limitMB = getFileSizeLimitMB(docType);
+        updateQueueItem(item.id, {
+          status: 'error',
+          error: `Exceeds ${limitMB} MB limit for ${getDocumentTypeLabel(docType)}`,
+        });
+      }
+    }
+
+    const toUpload = valid.map((item) => ({
+      ...item,
+      status: 'pending' as const,
+      error: undefined,
+    }));
+
+    for (const item of toUpload) {
+      updateQueueItem(item.id, { status: 'pending', error: undefined });
+    }
+
+    setIsBatchUploading(true);
+    let success = 0;
+    let failed = oversized.length;
+
+    try {
+      await runWithConcurrency(toUpload, BATCH_UPLOAD_CONCURRENCY, async (item) => {
+        updateQueueItem(item.id, { status: 'uploading', error: undefined });
+        try {
+          const meta = getEffectiveUploadMeta(item, defaults);
+          const uploadResult = await uploadFileToS3(item.file);
+          const fileHash = await calculateFileHash(item.file);
+          const studentId = meta.student_id && meta.student_id.trim() !== ''
+            ? meta.student_id
+            : undefined;
+
+          await createDocument({
+            student_id: studentId,
+            document_type: meta.document_type,
+            file_storage_provider: 's3',
+            file_storage_url: uploadResult.url,
+            file_hash: fileHash,
+            file_mime_type: resolveContentType(item.file),
+            file_size_bytes: item.file.size,
+            original_filename: item.file.name,
+            tag_ids: meta.tag_ids.length > 0 ? meta.tag_ids : undefined,
+          });
+
+          updateQueueItem(item.id, { status: 'success', error: undefined });
+          success += 1;
+        } catch (error) {
+          console.error(`Failed to upload ${item.relativePath}:`, error);
+          const message = error instanceof Error ? error.message : 'Upload failed';
+          updateQueueItem(item.id, { status: 'error', error: message });
+          failed += 1;
+        }
+      });
+    } finally {
+      setIsBatchUploading(false);
+    }
+
+    return { success, failed };
+  };
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (selectedFiles.length === 0) {
+    const targets = uploadQueue.filter(
+      (item) => item.status === 'pending' || item.status === 'error'
+    );
+
+    if (targets.length === 0) {
       await showAlert('Please select at least one file');
       return;
     }
 
-    // Final size guard in case document type was changed after files were selected
-    const validFiles = await validateFileSize(selectedFiles, formData.document_type);
-    if (validFiles.length !== selectedFiles.length) {
-      setSelectedFiles(validFiles);
-      if (validFiles.length === 0) return;
-    }
+    const { success, failed } = await uploadQueueItems(targets);
 
-    const studentId = formData.student_id && formData.student_id.trim() !== ''
-      ? formData.student_id
-      : undefined;
-
-    let successCount = 0;
-    let failedFiles: string[] = [];
-
-    try {
-      for (const file of selectedFiles) {
-        try {
-          setUploadingFiles(prev => new Set(prev).add(file.name));
-          reset();
-
-          const uploadResult = await uploadFile(file);
-
-          if (!uploadResult) {
-            throw new Error('Failed to upload file to S3');
-          }
-
-          const fileHash = await calculateFileHash(file);
-
-          await createDocument({
-            student_id: studentId,
-            document_type: formData.document_type,
-            file_storage_provider: 's3',
-            file_storage_url: uploadResult.url,
-            file_hash: fileHash,
-            file_mime_type: file.type,
-            file_size_bytes: file.size,
-            original_filename: file.name,
-            tag_ids: uploadTagIds.length > 0 ? uploadTagIds : undefined,
-          });
-
-          successCount++;
-
-          setUploadingFiles(prev => {
-            const next = new Set(prev);
-            next.delete(file.name);
-            return next;
-          });
-        } catch (error) {
-          console.error(`Failed to upload ${file.name}:`, error);
-          failedFiles.push(file.name);
-          setUploadingFiles(prev => {
-            const next = new Set(prev);
-            next.delete(file.name);
-            return next;
-          });
-        }
-      }
-
-      if (successCount === selectedFiles.length) {
-        await showAlert(`All ${successCount} document(s) uploaded successfully!`);
-      } else if (successCount > 0) {
-        await showAlert(`${successCount} document(s) uploaded successfully.\n\nFailed: ${failedFiles.join(', ')}`);
+    if (success > 0) {
+      if (limit) {
+        refetch({ limit });
       } else {
-        await showAlert(`Failed to upload all documents.\n\nFailed: ${failedFiles.join(', ')}`);
+        refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
       }
-
-      if (successCount > 0) {
-        setShowUploadForm(false);
-        setSelectedFiles([]);
-        setUploadStudentSearch('');
-        setUploadTagIds([]);
-        setFormData({ student_id: '', document_type: 'report_card' });
-        reset();
-        // Refetch with current filters
-        if (limit) {
-          refetch({ limit });
-        } else {
-          refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to upload documents:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      await showAlert(`Failed to upload documents: ${errorMessage}`);
-      reset();
-      setUploadingFiles(new Set());
     }
+
+    if (failed === 0) {
+      await showAlert(`All ${success} document(s) uploaded successfully!`);
+      resetUploadForm();
+      return;
+    }
+
+    if (success > 0) {
+      await showAlert(
+        `${success} document(s) uploaded successfully.\n\n${failed} failed — you can retry the failed files below.`
+      );
+      setUploadQueue((prev) => prev.filter((item) => item.status !== 'success'));
+      return;
+    }
+
+    await showAlert(`Failed to upload all documents. You can retry the failed files below.`);
+  };
+
+  const handleRetryFailed = async () => {
+    const failedItems = uploadQueue.filter((item) => item.status === 'error');
+    if (failedItems.length === 0) return;
+
+    const { success, failed } = await uploadQueueItems(failedItems);
+
+    if (success > 0) {
+      if (limit) {
+        refetch({ limit });
+      } else {
+        refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
+      }
+    }
+
+    if (failed === 0) {
+      await showAlert(`All ${success} remaining document(s) uploaded successfully!`);
+      resetUploadForm();
+      return;
+    }
+
+    if (success > 0) {
+      await showAlert(
+        `${success} document(s) uploaded on retry.\n\n${failed} still failed — you can retry again.`
+      );
+      setUploadQueue((prev) => prev.filter((item) => item.status !== 'success'));
+      return;
+    }
+
+    await showAlert(`Retry failed for all remaining documents.`);
   };
 
   const handleDelete = async (documentId: string) => {
@@ -620,7 +771,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       {showUploadForm && (
         <form onSubmit={handleUpload} className="border rounded-lg p-4 space-y-4">
           <div>
-            <label className="text-sm font-medium">Student</label>
+            <label className="text-sm font-medium">Student (default for batch)</label>
             <div className="relative mt-1" ref={uploadStudentRef}>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -678,39 +829,18 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium">Document Type</label>
+            <label className="text-sm font-medium">Document Type (default for batch)</label>
             <select
               value={formData.document_type}
               onChange={(e) => setFormData({ ...formData, document_type: e.target.value })}
               className="w-full mt-1 px-3 py-2 border rounded-md bg-background"
             >
-              <optgroup label="Enrollment / Identity">
-                <option value="birth_certificate">Birth Certificate</option>
-                <option value="national_id">National ID (Aadhar / SSN)</option>
-                <option value="address_proof">Address Proof</option>
-                <option value="passport_photo">Passport Photo</option>
-              </optgroup>
-              <optgroup label="Transfer / Admissions">
-                <option value="transfer_certificate">Transfer Certificate (LC/TC)</option>
-              </optgroup>
-              <optgroup label="Academic Records">
-                <option value="report_card">Report Card / Marksheet</option>
-                <option value="transcript">Transcript</option>
-                <option value="cumulative_record">Cumulative Record</option>
-                <option value="diploma">Diploma</option>
-                <option value="certificate">Certificate</option>
-              </optgroup>
-              <optgroup label="Health">
-                <option value="health_fitness_card">Health &amp; Fitness Card</option>
-              </optgroup>
-              <optgroup label="Other">
-                <option value="others">Others</option>
-              </optgroup>
+              <DocumentTypeOptions />
             </select>
           </div>
 
           <div>
-            <label className="text-sm font-medium">Tags</label>
+            <label className="text-sm font-medium">Tags (default for batch)</label>
             <div className="mt-1">
               <TagFilter
                 tags={tags}
@@ -731,12 +861,15 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Tags apply to all files in this upload.
+              Default tags for all files. Changing these updates every file in the queue.
             </p>
           </div>
 
           <div>
             <label className="text-sm font-medium">Files</label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-1">
+              Batch defaults apply to all files. Row edits override until you change the batch defaults again. Nested folders are flattened.
+            </p>
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -749,9 +882,10 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
             >
               <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
               <p className="text-sm text-muted-foreground mb-2">
-                Drag and drop files here, or click to browse
+                Drag and drop files or folders here
               </p>
               <input
+                ref={fileInputRef}
                 type="file"
                 onChange={handleFileChange}
                 multiple
@@ -760,17 +894,36 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                 accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                 disabled={isUploading}
               />
-              <label htmlFor="file-upload">
+              <input
+                ref={folderInputRef}
+                type="file"
+                onChange={handleFolderChange}
+                className="hidden"
+                id="folder-upload"
+                multiple
+                disabled={isUploading}
+              />
+              <div className="flex items-center justify-center gap-2 flex-wrap">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   disabled={isUploading}
-                  onClick={() => document.getElementById('file-upload')?.click()}
+                  onClick={() => fileInputRef.current?.click()}
                 >
                   Browse Files
                 </Button>
-              </label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isUploading}
+                  onClick={() => folderInputRef.current?.click()}
+                >
+                  <FolderOpen className="h-4 w-4 mr-1.5" />
+                  Browse Folder
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground mt-2">
                 Supported: PDF, DOC, DOCX, JPG, JPEG, PNG
               </p>
@@ -779,40 +932,121 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               </p>
             </div>
 
-            {selectedFiles.length > 0 && (
+            {uploadQueue.length > 0 && (
               <div className="mt-3 space-y-2">
-                <p className="text-sm font-medium">Selected Files ({selectedFiles.length})</p>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {selectedFiles.map((file, index) => (
-                    <div
-                      key={`${file.name}-${index}`}
-                      className="flex items-center justify-between p-2 bg-muted rounded-md"
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">
+                    Upload queue ({uploadQueue.length})
+                    {isUploading && (
+                      <span className="text-muted-foreground font-normal">
+                        {' '}· {successCount + failedCount}/{uploadQueue.length} finished
+                      </span>
+                    )}
+                  </p>
+                  {failedCount > 0 && !isUploading && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRetryFailed}
+                      className="flex items-center gap-1.5"
                     >
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{file.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {(file.size / 1024).toFixed(0)} KB
-                          </p>
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Retry failed ({failedCount})
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {uploadQueue.map((item) => {
+                    const effective = getEffectiveUploadMeta(item, batchDefaults);
+                    const canEdit = (item.status === 'pending' || item.status === 'error') && !isUploading;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex flex-wrap items-center gap-2 p-2 bg-muted rounded-md"
+                      >
+                        <div className="flex items-center gap-2 min-w-[10rem] flex-1 basis-40">
+                          {item.status === 'success' ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                          ) : item.status === 'error' ? (
+                            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                          ) : item.status === 'uploading' ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm truncate" title={item.relativePath}>
+                              {item.relativePath}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {(item.file.size / 1024).toFixed(0)} KB
+                              {item.customize ? ' · customized' : ''}
+                              {item.error ? ` · ${item.error}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        <select
+                          value={effective.student_id}
+                          disabled={!canEdit}
+                          onChange={(e) => beginCustomize(item, { student_id: e.target.value })}
+                          className="min-w-[8rem] max-w-[12rem] flex-1 px-2 py-1.5 text-xs border rounded-md bg-background disabled:opacity-60"
+                          title="Student"
+                        >
+                          <option value="">No student</option>
+                          {students.map((student) => (
+                            <option key={student.id} value={student.user_id!}>
+                              {student.email || 'Unknown'}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={effective.document_type}
+                          disabled={!canEdit}
+                          onChange={(e) => beginCustomize(item, { document_type: e.target.value })}
+                          className="min-w-[9rem] max-w-[14rem] flex-1 px-2 py-1.5 text-xs border rounded-md bg-background disabled:opacity-60"
+                          title="Document type"
+                        >
+                          <DocumentTypeOptions />
+                        </select>
+
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className={!canEdit ? 'pointer-events-none opacity-60' : ''}>
+                            <TagFilter
+                              tags={tags}
+                              selectedTagIds={effective.tag_ids}
+                              onToggle={(tagId) => {
+                                if (!canEdit) return;
+                                const next = effective.tag_ids.includes(tagId)
+                                  ? effective.tag_ids.filter((id) => id !== tagId)
+                                  : [...effective.tag_ids, tagId];
+                                beginCustomize(item, { tag_ids: next });
+                              }}
+                              onClear={() => {
+                                if (!canEdit) return;
+                                beginCustomize(item, { tag_ids: [] });
+                              }}
+                              onCreateTag={canEdit ? handleCreateTag : undefined}
+                              align="left"
+                            />
+                          </div>
+                          {canEdit && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeQueueItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          )}
                         </div>
                       </div>
-                      {uploadingFiles.has(file.name) ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeFile(index)}
-                          disabled={isUploading}
-                          className="flex-shrink-0"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -821,40 +1055,34 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           {isUploading && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span>Uploading {progress.fileName}...</span>
-                <span>{progress.progress}%</span>
+                <span>
+                  Uploading batch… {uploadingCount} in progress
+                </span>
+                <span>
+                  {successCount} ok · {failedCount} failed · {uploadQueue.length} total
+                </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-primary h-2 rounded-full transition-all"
-                  style={{ width: `${progress.progress}%` }}
+                  style={{
+                    width: `${uploadQueue.length === 0 ? 0 : ((successCount + failedCount) / uploadQueue.length) * 100}%`,
+                  }}
                 />
               </div>
             </div>
           )}
 
-          {progress.status === 'error' && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
-              {progress.error}
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <Button type="submit" disabled={isUploading || selectedFiles.length === 0}>
+          <div className="flex gap-2 flex-wrap">
+            <Button type="submit" disabled={isUploading || pendingOrFailedCount === 0}>
               {isUploading
-                ? `Uploading... (${uploadingFiles.size}/${selectedFiles.length})`
-                : `Upload ${selectedFiles.length} Document${selectedFiles.length !== 1 ? 's' : ''}`}
+                ? `Uploading... (${successCount + failedCount}/${uploadQueue.length})`
+                : `Upload ${pendingOrFailedCount} Document${pendingOrFailedCount !== 1 ? 's' : ''}`}
             </Button>
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
-                setShowUploadForm(false);
-                setSelectedFiles([]);
-                setUploadingFiles(new Set());
-                setUploadTagIds([]);
-                reset();
-              }}
+              onClick={resetUploadForm}
               disabled={isUploading}
             >
               Cancel

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
 import { query, queryOne, getClient } from '@/lib/db/config';
 import { DBDocument } from '@/lib/db/types';
+import { VALID_DOCUMENT_TYPES } from '@/lib/uploads/limits';
 
 /**
  * GET /api/schools/:schoolId/documents
@@ -162,8 +163,7 @@ export async function POST(
     }
 
     // Validate document type
-    const validTypes = ['report_card', 'transcript', 'certificate', 'diploma', 'others'];
-    if (!validTypes.includes(document_type)) {
+    if (!(VALID_DOCUMENT_TYPES as readonly string[]).includes(document_type)) {
       return NextResponse.json(
         { error: 'Invalid document type' },
         { status: 400 }
