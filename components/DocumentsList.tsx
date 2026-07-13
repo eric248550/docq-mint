@@ -10,6 +10,30 @@ import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Ci
 import { DBDocument } from '@/lib/db/types';
 import { Modal, useModal } from '@/components/ui/alert-modal';
 
+// Module-level helper — shared by DocumentsList and DocumentRow
+function getDocumentTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    // Enrollment / Identity
+    birth_certificate:    'Birth Certificate',
+    national_id:          'National ID (Aadhar / SSN)',
+    address_proof:        'Address Proof',
+    passport_photo:       'Passport Photo',
+    // Transfer / Admissions
+    transfer_certificate: 'Transfer Certificate (LC/TC)',
+    // Academic Records
+    report_card:          'Report Card / Marksheet',
+    transcript:           'Transcript',
+    cumulative_record:    'Cumulative Record',
+    diploma:              'Diploma',
+    certificate:          'Certificate',
+    // Health
+    health_fitness_card:  'Health & Fitness Card',
+    // Catch-all
+    others:               'Others',
+  };
+  return labels[type] || type;
+}
+
 interface DocumentsListProps {
   schoolId: string;
   limit?: number;
@@ -53,6 +77,35 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   // Only show students who have actually signed up (user_id is not null)
   const students = members.filter(m => m.role === 'student' && m.user_id !== null);
+
+  // ─── File size limits per document type ────────────────────────────────────
+  const FILE_SIZE_LIMITS_MB: Record<string, number> = {
+    report_card:       3,
+    cumulative_record: 30,
+    diploma:           3,
+  };
+  const DEFAULT_FILE_SIZE_MB = 2;
+
+  const getFileSizeLimitMB = (docType: string) =>
+    FILE_SIZE_LIMITS_MB[docType] ?? DEFAULT_FILE_SIZE_MB;
+
+  const getFileSizeLimitBytes = (docType: string) =>
+    getFileSizeLimitMB(docType) * 1024 * 1024;
+
+  const validateFileSize = async (files: File[], docType: string): Promise<File[]> => {
+    const limitBytes = getFileSizeLimitBytes(docType);
+    const limitMB = getFileSizeLimitMB(docType);
+    const oversized = files.filter(f => f.size > limitBytes);
+    const valid = files.filter(f => f.size <= limitBytes);
+    if (oversized.length > 0) {
+      const names = oversized.map(f => f.name).join(', ');
+      await showAlert(
+        `${oversized.length} file(s) exceed the ${limitMB} MB limit for "${getDocumentTypeLabel(docType)}" and were removed:\n${names}`
+      );
+    }
+    return valid;
+  };
+  // ───────────────────────────────────────────────────────────────────────────
 
   const isUploading = progress.status === 'uploading' || uploadingFiles.size > 0;
 
@@ -141,11 +194,16 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     setPage(1);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFiles = Array.from(e.target.files);
-      setSelectedFiles(prev => [...prev, ...newFiles]);
+      const newFiles = await validateFileSize(
+        Array.from(e.target.files),
+        formData.document_type
+      );
+      if (newFiles.length > 0) setSelectedFiles(prev => [...prev, ...newFiles]);
     }
+    // Reset input so the same file can be re-selected after being rejected
+    e.target.value = '';
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -166,17 +224,18 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-    const acceptedFiles = files.filter(file => {
+    const typeAccepted = files.filter(file => {
       const extension = file.name.split('.').pop()?.toLowerCase();
       return ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'].includes(extension || '');
     });
 
-    if (acceptedFiles.length > 0) {
-      setSelectedFiles(prev => [...prev, ...acceptedFiles]);
+    if (typeAccepted.length < files.length) {
+      await showAlert(`${files.length - typeAccepted.length} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`);
     }
 
-    if (acceptedFiles.length < files.length) {
-      await showAlert(`${files.length - acceptedFiles.length} file(s) were rejected. Only PDF, DOC, DOCX, JPG, JPEG, and PNG files are accepted.`);
+    const sizeAccepted = await validateFileSize(typeAccepted, formData.document_type);
+    if (sizeAccepted.length > 0) {
+      setSelectedFiles(prev => [...prev, ...sizeAccepted]);
     }
   };
 
@@ -197,6 +256,13 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     if (selectedFiles.length === 0) {
       await showAlert('Please select at least one file');
       return;
+    }
+
+    // Final size guard in case document type was changed after files were selected
+    const validFiles = await validateFileSize(selectedFiles, formData.document_type);
+    if (validFiles.length !== selectedFiles.length) {
+      setSelectedFiles(validFiles);
+      if (validFiles.length === 0) return;
     }
 
     const studentId = formData.student_id && formData.student_id.trim() !== ''
@@ -628,6 +694,9 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               <p className="text-xs text-muted-foreground mt-2">
                 Supported: PDF, DOC, DOCX, JPG, JPEG, PNG
               </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Max file size: <span className="font-medium">{getFileSizeLimitMB(formData.document_type)} MB</span> for {getDocumentTypeLabel(formData.document_type)}
+              </p>
             </div>
 
             {selectedFiles.length > 0 && (
@@ -826,29 +895,6 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, onSearchS
     }, 300);
     return () => clearTimeout(timer);
   }, [studentSearchInput]);
-
-  const getDocumentTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      // Enrollment / Identity
-      birth_certificate:   'Birth Certificate',
-      national_id:         'National ID (Aadhar / SSN)',
-      address_proof:       'Address Proof',
-      passport_photo:      'Passport Photo',
-      // Transfer / Admissions
-      transfer_certificate: 'Transfer Certificate (LC/TC)',
-      // Academic Records
-      report_card:         'Report Card / Marksheet',
-      transcript:          'Transcript',
-      cumulative_record:   'Cumulative Record',
-      diploma:             'Diploma',
-      certificate:         'Certificate',
-      // Health
-      health_fitness_card: 'Health & Fitness Card',
-      // Catch-all
-      others:              'Others',
-    };
-    return labels[type] || type;
-  };
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
