@@ -173,13 +173,49 @@ export function StudentDashboard() {
   );
 }
 
+interface ShareLink {
+  id: string;
+  token: string;
+  url: string;
+  expiresAt: string | null;
+  createdAt: string;
+  isExpired: boolean;
+}
+
 function DocumentCard({ document }: { document: DBDocument }) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [neverExpires, setNeverExpires] = useState(false);
+  const [expiryInput, setExpiryInput] = useState('');
+  const [links, setLinks] = useState<ShareLink[]>([]);
+  const [isLoadingLinks, setIsLoadingLinks] = useState(true);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedQrId, setExpandedQrId] = useState<string | null>(null);
   const { getAuthToken } = useAuthStore();
   const { modal, showAlert, closeModal } = useModal();
+
+  const fetchLinks = async () => {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const response = await fetch(`/api/documents/${document.id}/share`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) return;
+      const { links: fetched } = await response.json();
+      setLinks(fetched ?? []);
+    } catch (error) {
+      console.error('Failed to load share links:', error);
+    } finally {
+      setIsLoadingLinks(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLinks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document.id]);
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
@@ -241,7 +277,33 @@ function DocumentCard({ document }: { document: DBDocument }) {
     }
   };
 
-  const handleShare = async () => {
+  const openShareModal = () => {
+    setExpiryInput('');
+    setNeverExpires(false);
+    setShowShareModal(true);
+  };
+
+  const handleGenerate = async () => {
+    // Resolve expiration: never expires -> null, custom date -> ISO string,
+    // empty input -> undefined (server applies its 30-day default)
+    let expiresAt: string | null | undefined;
+    if (neverExpires) {
+      expiresAt = null;
+    } else if (expiryInput) {
+      const parsed = new Date(expiryInput);
+      if (isNaN(parsed.getTime())) {
+        await showAlert('Please enter a valid expiration date and time.');
+        return;
+      }
+      if (parsed.getTime() <= Date.now()) {
+        await showAlert('Expiration date must be in the future.');
+        return;
+      }
+      expiresAt = parsed.toISOString();
+    } else {
+      expiresAt = undefined;
+    }
+
     setIsSharing(true);
     try {
       const token = await getAuthToken();
@@ -253,7 +315,9 @@ function DocumentCard({ document }: { document: DBDocument }) {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify(expiresAt === undefined ? {} : { expiresAt }),
       });
 
       if (!response.ok) {
@@ -261,8 +325,11 @@ function DocumentCard({ document }: { document: DBDocument }) {
         throw new Error(error.error || 'Failed to generate share link');
       }
 
-      const { url } = await response.json();
-      setShareUrl(url);
+      const created = await response.json();
+      setShowShareModal(false);
+      await fetchLinks();
+      // Auto-expand the QR for the freshly created link
+      setExpandedQrId(created.token);
     } catch (error) {
       console.error('Share error:', error);
       await showAlert('Failed to generate share link. Please try again.');
@@ -271,13 +338,26 @@ function DocumentCard({ document }: { document: DBDocument }) {
     }
   };
 
-  const handleCopyLink = () => {
-    if (shareUrl) {
-      navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+  const handleCopyLink = (link: ShareLink) => {
+    navigator.clipboard.writeText(link.url);
+    setCopiedId(link.id);
+    setTimeout(() => setCopiedId((prev) => (prev === link.id ? null : prev)), 2000);
   };
+
+  const formatExpiry = (link: ShareLink) => {
+    if (!link.expiresAt) return 'Never expires';
+    const label = new Date(link.expiresAt).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return link.isExpired ? `Expired on ${label}` : `Expires ${label}`;
+  };
+
+  const activeLinks = links.filter((link) => !link.isExpired);
+  const expiredCount = links.length - activeLinks.length;
 
   return (
     <div className="border rounded-lg p-6 hover:border-primary/50 transition-colors">
@@ -322,20 +402,11 @@ function DocumentCard({ document }: { document: DBDocument }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleShare}
+            onClick={openShareModal}
             disabled={isSharing}
           >
-            {isSharing ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Share2 className="h-4 w-4 mr-2" />
-                Share
-              </>
-            )}
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
           </Button>
           <Button
             variant="outline"
@@ -358,42 +429,146 @@ function DocumentCard({ document }: { document: DBDocument }) {
         </div>
       </div>
 
-      {shareUrl && (
+      {/* Existing shared links */}
+      {(isLoadingLinks || links.length > 0) && (
         <div className="mt-4 pt-4 border-t">
-          <p className="text-sm font-medium mb-2">Verification Link:</p>
-          <div className="flex flex-col sm:flex-row gap-4 items-start">
-            <div className="flex-shrink-0 p-3 bg-white rounded-lg border">
-              <QRCodeSVG value={shareUrl} size={160} level="M" />
+          <p className="text-sm font-medium mb-2">Shared Links:</p>
+          {isLoadingLinks ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading links...
             </div>
-            <div className="flex-1 min-w-0 space-y-2">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={shareUrl}
-                  readOnly
-                  className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyLink}
-                >
-                  {copied ? (
-                    <>
-                      <Check className="h-4 w-4 mr-2" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy
-                    </>
+          ) : (
+            <div className="space-y-3">
+              {activeLinks.map((link) => (
+                <div key={link.id} className="border rounded-md p-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">
+                        Active
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate">
+                        {formatExpiry(link)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setExpandedQrId((prev) => (prev === link.token ? null : link.token))
+                        }
+                      >
+                        {expandedQrId === link.token ? 'Hide QR' : 'Show QR'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopyLink(link)}
+                      >
+                        {copiedId === link.id ? (
+                          <>
+                            <Check className="h-4 w-4 mr-2" />
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4 mr-2" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  {expandedQrId === link.token && (
+                    <div className="mt-3 flex flex-col sm:flex-row gap-4 items-start">
+                      <div className="flex-shrink-0 p-3 bg-white rounded-lg border">
+                        <QRCodeSVG value={link.url} size={160} level="M" />
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <input
+                          type="text"
+                          value={link.url}
+                          readOnly
+                          className="w-full px-3 py-2 text-sm border rounded-md bg-muted"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Share this link or scan the QR code with third parties to verify your document. They will need to pay $2 to access it.
+                        </p>
+                      </div>
+                    </div>
                   )}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Share this link or scan the QR code with third parties to verify your document. They will need to pay $2 to access it.
+                </div>
+              ))}
+              {activeLinks.length === 0 && (
+                <p className="text-xs text-muted-foreground">No active links.</p>
+              )}
+              {expiredCount > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {expiredCount} {expiredCount === 1 ? 'link' : 'links'} expired
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Share / expiration modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-1">Create Shareable Link</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Set when this verification link should expire.
+            </p>
+
+            <label className="block text-sm font-medium mb-1">Expiration date &amp; time</label>
+            <input
+              type="datetime-local"
+              value={expiryInput}
+              onChange={(e) => setExpiryInput(e.target.value)}
+              disabled={neverExpires || isSharing}
+              className="w-full px-3 py-2 text-sm border rounded-md bg-background disabled:opacity-50"
+            />
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none mt-3">
+              <input
+                type="checkbox"
+                checked={neverExpires}
+                onChange={(e) => setNeverExpires(e.target.checked)}
+                disabled={isSharing}
+                className="h-4 w-4"
+              />
+              Never expires
+            </label>
+
+            {!neverExpires && !expiryInput && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Leave blank to default to 30 days from now.
               </p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowShareModal(false)}
+                disabled={isSharing}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleGenerate} disabled={isSharing}>
+                {isSharing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="h-4 w-4 mr-2" />
+                    Generate Link
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </div>
