@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { authenticatedRequest } from '@/lib/api/client';
-import { DBSchool, DBSchoolMembership, DBDocument } from '@/lib/db/types';
+import { DBSchool, DBSchoolMembership, DBDocument, DBTag } from '@/lib/db/types';
 
 export type Pagination = {
   page: number;
@@ -18,6 +18,7 @@ export type SchoolDocFilters = {
   studentEmail?: string;
   unassigned?: string;
   issued?: string;
+  tags?: string;        // comma-separated tag ids (OR match)
   sortOrder?: string;
 };
 
@@ -277,6 +278,7 @@ export function useSchoolDocuments(schoolId: string | null) {
     file_mime_type?: string;
     file_size_bytes?: number;
     original_filename?: string;
+    tag_ids?: string[];
   }) => {
     if (!schoolId) throw new Error('No school selected');
 
@@ -302,6 +304,7 @@ export function useSchoolDocuments(schoolId: string | null) {
   const updateDocument = async (documentId: string, data: {
     document_type?: string;
     student_id?: string | null;
+    tag_ids?: string[];
   }) => {
     const token = await getAuthToken();
     if (!token) throw new Error('Not authenticated');
@@ -391,5 +394,87 @@ export function useStudentDocuments() {
     isLoading,
     error,
     refetch: fetchDocuments,
+  };
+}
+
+export function useSchoolTags(schoolId: string | null) {
+  const { getAuthToken } = useAuthStore();
+  const [tags, setTags] = useState<DBTag[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTags = async () => {
+    if (!schoolId) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const token = await getAuthToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await authenticatedRequest<{ data: DBTag[] }>(
+        `/api/schools/${schoolId}/tags`,
+        token
+      );
+
+      if (response.error) throw new Error(response.error);
+      if (response.data) setTags(response.data.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch tags');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const createTag = async (data: { name: string; color?: string | null }) => {
+    if (!schoolId) throw new Error('No school selected');
+
+    const token = await getAuthToken();
+    if (!token) throw new Error('Not authenticated');
+
+    const response = await authenticatedRequest<{ tag: DBTag }>(
+      `/api/schools/${schoolId}/tags`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+
+    if (response.error) throw new Error(response.error);
+    if (response.data) {
+      setTags(prev =>
+        [...prev, response.data!.tag].sort((a, b) =>
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        )
+      );
+      return response.data.tag;
+    }
+  };
+
+  const deleteTag = async (tagId: string) => {
+    if (!schoolId) throw new Error('No school selected');
+
+    const token = await getAuthToken();
+    if (!token) throw new Error('Not authenticated');
+
+    const response = await authenticatedRequest(
+      `/api/schools/${schoolId}/tags/${tagId}`,
+      token,
+      { method: 'DELETE' }
+    );
+
+    if (response.error) throw new Error(response.error);
+    setTags(prev => prev.filter(t => t.id !== tagId));
+  };
+
+  return {
+    tags,
+    isLoading,
+    error,
+    refetch: fetchTags,
+    createTag,
+    deleteTag,
   };
 }

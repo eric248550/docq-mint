@@ -9,6 +9,7 @@ import { FileText, Download, Calendar, Loader2, Share2, Copy, Check, Search, Arr
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
 import { Modal, useModal } from '@/components/ui/alert-modal';
+import { TagChip } from '@/components/DocumentsList';
 
 export function StudentDashboard() {
   const router = useRouter();
@@ -308,6 +309,13 @@ function DocumentCard({ document }: { document: DBDocument }) {
                 <span>{(document.file_size_bytes / 1024).toFixed(0)} KB</span>
               )}
             </div>
+            {document.tags && document.tags.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap mt-2">
+                {document.tags.map(tag => (
+                  <TagChip key={tag.id} tag={tag} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex gap-2">

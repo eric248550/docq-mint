@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
-import { query, queryOne } from '@/lib/db/config';
+import { query, queryOne, getClient } from '@/lib/db/config';
 import { DBDocument } from '@/lib/db/types';
 
 /**
@@ -39,6 +39,7 @@ export async function GET(
     const studentEmail = searchParams.get('studentEmail');
     const unassigned = searchParams.get('unassigned');
     const issued = searchParams.get('issued');
+    const tags = searchParams.get('tags'); // comma-separated tag ids; OR match
     const sortOrder = searchParams.get('sortOrder') === 'asc' ? 'ASC' : 'DESC';
 
     const conditions: string[] = ['d.school_id = $1'];
@@ -67,6 +68,17 @@ export async function GET(
     } else if (issued === 'false') {
       conditions.push('d.issued_at IS NULL');
     }
+    if (tags) {
+      const tagIds = tags.split(',').map(t => t.trim()).filter(Boolean);
+      if (tagIds.length > 0) {
+        // OR match: document has at least one of the selected tags
+        conditions.push(`EXISTS (
+          SELECT 1 FROM docq_mint_document_tags dt
+          WHERE dt.document_id = d.id AND dt.tag_id = ANY($${idx++}::uuid[])
+        )`);
+        qp.push(tagIds);
+      }
+    }
 
     const where = conditions.join(' AND ');
 
@@ -82,7 +94,14 @@ export async function GET(
 
     const data = await query<DBDocument & { is_published: boolean }>(
       `SELECT d.*,
-              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
+              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
+              COALESCE(
+                (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
+                 FROM docq_mint_document_tags dt
+                 JOIN docq_mint_tags t ON t.id = dt.tag_id
+                 WHERE dt.document_id = d.id),
+                '[]'
+              ) as tags
        FROM docq_mint_documents d
        LEFT JOIN docq_mint_users u ON u.id = d.student_id
        WHERE ${where}
@@ -131,6 +150,7 @@ export async function POST(
       file_mime_type,
       file_size_bytes,
       original_filename,
+      tag_ids,
     } = body;
 
     // Validate required fields
@@ -153,7 +173,7 @@ export async function POST(
     // If student_id provided, verify student belongs to school
     if (student_id) {
       const membership = await queryOne(
-        `SELECT * FROM docq_mint_school_memberships 
+        `SELECT * FROM docq_mint_school_memberships
          WHERE school_id = $1 AND user_id = $2 AND role = 'student' AND status = 'active'`,
         [schoolId, student_id]
       );
@@ -166,24 +186,82 @@ export async function POST(
       }
     }
 
-    // Create document
+    // If tag_ids provided, verify every tag belongs to this school
+    let validTagIds: string[] = [];
+    if (tag_ids !== undefined) {
+      if (!Array.isArray(tag_ids)) {
+        return NextResponse.json({ error: 'tag_ids must be an array' }, { status: 400 });
+      }
+      validTagIds = Array.from(new Set(tag_ids.filter((t: unknown): t is string => typeof t === 'string')));
+
+      if (validTagIds.length > 0) {
+        const owned = await query<{ id: string }>(
+          `SELECT id FROM docq_mint_tags WHERE school_id = $1 AND id = ANY($2::uuid[])`,
+          [schoolId, validTagIds]
+        );
+        if (owned.length !== validTagIds.length) {
+          return NextResponse.json(
+            { error: 'One or more tags do not belong to this school' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // Create document (+ tag links) atomically
+    const client = await getClient();
+    let documentId: string;
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO docq_mint_documents
+         (school_id, student_id, document_type, file_storage_provider,
+          file_storage_url, file_hash, file_mime_type, file_size_bytes, original_filename)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [
+          schoolId,
+          student_id || null,
+          document_type,
+          file_storage_provider,
+          file_storage_url,
+          file_hash,
+          file_mime_type || null,
+          file_size_bytes || null,
+          original_filename || null,
+        ]
+      );
+      documentId = inserted.rows[0].id;
+
+      if (validTagIds.length > 0) {
+        await client.query(
+          `INSERT INTO docq_mint_document_tags (document_id, tag_id)
+           SELECT $1, unnest($2::uuid[])`,
+          [documentId, validTagIds]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Return the created document with its tags aggregated
     const document = await queryOne<DBDocument>(
-      `INSERT INTO docq_mint_documents 
-       (school_id, student_id, document_type, file_storage_provider, 
-        file_storage_url, file_hash, file_mime_type, file_size_bytes, original_filename)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
-        schoolId,
-        student_id || null,
-        document_type,
-        file_storage_provider,
-        file_storage_url,
-        file_hash,
-        file_mime_type || null,
-        file_size_bytes || null,
-        original_filename || null,
-      ]
+      `SELECT d.*,
+              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
+              COALESCE(
+                (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
+                 FROM docq_mint_document_tags dt
+                 JOIN docq_mint_tags t ON t.id = dt.tag_id
+                 WHERE dt.document_id = d.id),
+                '[]'
+              ) as tags
+       FROM docq_mint_documents d
+       WHERE d.id = $1`,
+      [documentId]
     );
 
     return NextResponse.json({ document }, { status: 201 });

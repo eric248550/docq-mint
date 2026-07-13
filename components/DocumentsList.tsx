@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useSchoolDocuments, useSchoolMembers } from '@/hooks/useSchools';
+import { useSchoolDocuments, useSchoolMembers, useSchoolTags } from '@/hooks/useSchools';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown } from 'lucide-react';
-import { DBDocument } from '@/lib/db/types';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown, Tag as TagIcon, X, Plus, Check } from 'lucide-react';
+import { DBDocument, DBTag } from '@/lib/db/types';
 import { Modal, useModal } from '@/components/ui/alert-modal';
 
 // Module-level helper — shared by DocumentsList and DocumentRow
@@ -51,11 +51,15 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const [unassigned, setUnassigned] = useState(!limit ? (searchParams.get('unassigned') || '') : '');
   const [issued, setIssued] = useState(!limit ? (searchParams.get('issued') || '') : '');
   const [sortOrder, setSortOrder] = useState(!limit ? (searchParams.get('sort') || 'desc') : 'desc');
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
+    !limit && searchParams.get('tags') ? searchParams.get('tags')!.split(',').filter(Boolean) : []
+  );
 
   const [, startTransition] = useTransition();
 
   const { documents, pagination, isLoading, error, createDocument, updateDocument, deleteDocument, refetch } = useSchoolDocuments(schoolId);
   const { members, refetch: refetchMembers } = useSchoolMembers(schoolId);
+  const { tags, refetch: refetchTags, createTag } = useSchoolTags(schoolId);
   const { uploadFile, progress, reset } = useS3Upload();
   const { getAuthToken } = useAuthStore();
 
@@ -69,6 +73,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     student_id: '',
     document_type: 'report_card',
   });
+  const [uploadTagIds, setUploadTagIds] = useState<string[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
   const [isMinting, setIsMinting] = useState(false);
   const [mintingDocId, setMintingDocId] = useState<string | null>(null);
@@ -117,6 +122,11 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     refetchMembers({ role: 'student', limit: 20 });
   }, [schoolId]);
 
+  // Fetch the school's tag vocabulary (filter dropdown + row tag picker) — full view only
+  useEffect(() => {
+    if (!limit) refetchTags();
+  }, [schoolId, limit]);
+
   const handleSearchStudents = (query: string) => {
     refetchMembers({ role: 'student', search: query, limit: 20 });
   };
@@ -126,6 +136,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     if (showUploadForm) {
       setUploadStudentSearch('');
       setShowStudentDropdown(false);
+      setUploadTagIds([]);
       handleSearchStudents('');
     }
   }, [showUploadForm]);
@@ -169,8 +180,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   useEffect(() => {
     if (limit) return;
-    refetch({ page, search, documentType, unassigned, issued, sortOrder });
-  }, [page, search, documentType, unassigned, issued, sortOrder, schoolId]);
+    refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
+  }, [page, search, documentType, unassigned, issued, selectedTagIds, sortOrder, schoolId]);
 
   // Sync filters to URL in full view (wrapped in startTransition so the URL
   // update is non-blocking and never interrupts an active search input)
@@ -182,12 +193,13 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     if (documentType) params.set('docType', documentType);
     if (unassigned) params.set('unassigned', unassigned);
     if (issued) params.set('issued', issued);
+    if (selectedTagIds.length) params.set('tags', selectedTagIds.join(','));
     if (sortOrder !== 'desc') params.set('sort', sortOrder);
     const qs = params.toString();
     startTransition(() => {
       router.replace(qs ? `?${qs}` : '?', { scroll: false });
     });
-  }, [page, search, documentType, unassigned, issued, sortOrder, limit]);
+  }, [page, search, documentType, unassigned, issued, selectedTagIds, sortOrder, limit]);
 
   const handleFilterChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => {
     setter(e.target.value);
@@ -295,6 +307,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
             file_mime_type: file.type,
             file_size_bytes: file.size,
             original_filename: file.name,
+            tag_ids: uploadTagIds.length > 0 ? uploadTagIds : undefined,
           });
 
           successCount++;
@@ -327,13 +340,14 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         setShowUploadForm(false);
         setSelectedFiles([]);
         setUploadStudentSearch('');
+        setUploadTagIds([]);
         setFormData({ student_id: '', document_type: 'report_card' });
         reset();
         // Refetch with current filters
         if (limit) {
           refetch({ limit });
         } else {
-          refetch({ page, search, documentType, unassigned, issued, sortOrder });
+          refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
         }
       }
     } catch (error) {
@@ -402,7 +416,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       if (limit) {
         await refetch({ limit });
       } else {
-        await refetch({ page, search, documentType, unassigned, issued, sortOrder });
+        await refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
       }
     } catch (error) {
       console.error('Failed to publish documents:', error);
@@ -422,6 +436,29 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const handleMintSingle = async (documentId: string) => {
     setMintingDocId(documentId);
     await handleMintDocuments([documentId]);
+  };
+
+  // Replace the full set of tags on a document
+  const handleSetTags = async (documentId: string, tagIds: string[]) => {
+    await updateDocument(documentId, { tag_ids: tagIds });
+  };
+
+  // Create a new tag and return it (used by the row tag picker's inline "create")
+  const handleCreateTag = async (name: string): Promise<DBTag | undefined> => {
+    return await createTag({ name });
+  };
+
+  const toggleTagFilter = (tagId: string) => {
+    setSelectedTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    );
+    setPage(1);
+  };
+
+  const toggleUploadTag = (tagId: string) => {
+    setUploadTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    );
   };
 
   if (isLoading) {
@@ -547,6 +584,13 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               <option value="false">Assigned</option>
               <option value="true">Unassigned</option>
             </select>
+            <TagFilter
+              tags={tags}
+              selectedTagIds={selectedTagIds}
+              onToggle={toggleTagFilter}
+              onClear={() => { setSelectedTagIds([]); setPage(1); }}
+              onCreateTag={handleCreateTag}
+            />
             <Button
               variant="outline"
               size="sm"
@@ -560,6 +604,16 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
             </Button>
           </div>
+          {selectedTagIds.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-muted-foreground">Filtering by:</span>
+              {selectedTagIds.map(id => {
+                const tag = tags.find(t => t.id === id);
+                if (!tag) return null;
+                return <TagChip key={id} tag={tag} onRemove={() => toggleTagFilter(id)} />;
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -653,6 +707,32 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                 <option value="others">Others</option>
               </optgroup>
             </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Tags</label>
+            <div className="mt-1">
+              <TagFilter
+                tags={tags}
+                selectedTagIds={uploadTagIds}
+                onToggle={toggleUploadTag}
+                onClear={() => setUploadTagIds([])}
+                onCreateTag={handleCreateTag}
+                align="left"
+              />
+              {uploadTagIds.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  {uploadTagIds.map(id => {
+                    const tag = tags.find(t => t.id === id);
+                    if (!tag) return null;
+                    return <TagChip key={id} tag={tag} onRemove={() => toggleUploadTag(id)} />;
+                  })}
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Tags apply to all files in this upload.
+            </p>
           </div>
 
           <div>
@@ -772,6 +852,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                 setShowUploadForm(false);
                 setSelectedFiles([]);
                 setUploadingFiles(new Set());
+                setUploadTagIds([]);
                 reset();
               }}
               disabled={isUploading}
@@ -794,10 +875,13 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               key={doc.id}
               document={doc}
               students={students}
+              allTags={tags}
               onDelete={!limit ? handleDelete : undefined}
               onAssign={!limit ? updateDocument : undefined}
               onMint={!limit ? handleMintSingle : undefined}
               onSearchStudents={!limit ? handleSearchStudents : undefined}
+              onSetTags={!limit ? handleSetTags : undefined}
+              onCreateTag={!limit ? handleCreateTag : undefined}
               isMinting={mintingDocId === doc.id}
             />
           ))}
@@ -842,14 +926,17 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 interface DocumentRowProps {
   document: DBDocument;
   students: Array<{ id: string; user_id: string | null; email: string | null; role: string }>;
+  allTags: DBTag[];
   onDelete?: (id: string) => void;
   onAssign?: (documentId: string, data: { student_id?: string | null }) => Promise<any>;
   onMint?: (documentId: string) => Promise<void>;
   onSearchStudents?: (query: string) => void;
+  onSetTags?: (documentId: string, tagIds: string[]) => Promise<any>;
+  onCreateTag?: (name: string) => Promise<DBTag | undefined>;
   isMinting?: boolean;
 }
 
-function DocumentRow({ document, students, onDelete, onAssign, onMint, onSearchStudents, isMinting }: DocumentRowProps) {
+function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, onSearchStudents, onSetTags, onCreateTag, isMinting }: DocumentRowProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -997,6 +1084,13 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, onSearchS
               </>
             )}
           </div>
+          {document.tags && document.tags.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+              {document.tags.map(tag => (
+                <TagChip key={tag.id} tag={tag} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -1062,6 +1156,15 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, onSearchS
             )}
           </div>
         )}
+        {onSetTags && (
+          <TagPicker
+            documentId={document.id}
+            documentTags={document.tags ?? []}
+            allTags={allTags}
+            onSetTags={onSetTags}
+            onCreateTag={onCreateTag}
+          />
+        )}
         {onMint && !document.is_published && (
           <Button
             variant="default"
@@ -1099,6 +1202,289 @@ function DocumentRow({ document, students, onDelete, onAssign, onMint, onSearchS
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Tag components ──────────────────────────────────────────────────────────
+
+export type TagLike = { id: string; name: string; color: string | null };
+
+export function TagChip({ tag, onRemove }: { tag: TagLike; onRemove?: () => void }) {
+  const style = tag.color
+    ? { backgroundColor: `${tag.color}1a`, color: tag.color, borderColor: `${tag.color}55` }
+    : undefined;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border ${
+        tag.color ? '' : 'bg-gray-100 text-gray-700 border-gray-200'
+      }`}
+      style={style}
+    >
+      {tag.name}
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="hover:opacity-70" aria-label={`Remove ${tag.name}`}>
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function TagFilter({
+  tags,
+  selectedTagIds,
+  onToggle,
+  onClear,
+  onCreateTag,
+  align = 'right',
+}: {
+  tags: DBTag[];
+  selectedTagIds: string[];
+  onToggle: (id: string) => void;
+  onClear: () => void;
+  onCreateTag?: (name: string) => Promise<DBTag | undefined>;
+  align?: 'left' | 'right';
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) {
+      window.document.addEventListener('mousedown', handleClickOutside);
+      return () => window.document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  const filtered = tags.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
+  const exactMatch = tags.some(t => t.name.toLowerCase() === search.trim().toLowerCase());
+
+  const handleCreate = async () => {
+    const name = search.trim();
+    if (!name || !onCreateTag) return;
+    setIsCreating(true);
+    try {
+      const created = await onCreateTag(name);
+      if (created) {
+        onToggle(created.id); // select the freshly created tag
+        setSearch('');
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1"
+      >
+        <TagIcon className="h-3 w-3" />
+        Tags{selectedTagIds.length > 0 ? ` (${selectedTagIds.length})` : ''}
+      </Button>
+      {open && (
+        <div className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} mt-1 w-64 bg-white border rounded-lg shadow-lg z-10`}>
+          <div className="p-2 border-b">
+            <div className="relative">
+              <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search or create tag..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-7 pr-2 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+          <div className="p-1 max-h-52 overflow-y-auto">
+            {filtered.map(tag => {
+              const checked = selectedTagIds.includes(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => onToggle(tag.id)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-100 rounded text-left"
+                >
+                  <span className={`h-4 w-4 flex items-center justify-center border rounded ${checked ? 'bg-primary border-primary' : 'border-gray-300'}`}>
+                    {checked && <Check className="h-3 w-3 text-white" />}
+                  </span>
+                  <TagChip tag={tag} />
+                </button>
+              );
+            })}
+            {filtered.length === 0 && !search.trim() && (
+              <div className="px-3 py-2 text-sm text-muted-foreground">
+                {tags.length === 0 ? 'No tags yet' : 'No tags found'}
+              </div>
+            )}
+            {onCreateTag && search.trim() && !exactMatch && (
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={isCreating}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-100 rounded text-left text-primary disabled:opacity-50"
+              >
+                {isCreating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Create &ldquo;{search.trim()}&rdquo;
+              </button>
+            )}
+          </div>
+          {selectedTagIds.length > 0 && (
+            <div className="p-1 border-t">
+              <button
+                type="button"
+                onClick={onClear}
+                className="w-full px-2 py-1.5 text-sm text-muted-foreground hover:bg-gray-100 rounded text-left"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TagPicker({
+  documentId,
+  documentTags,
+  allTags,
+  onSetTags,
+  onCreateTag,
+}: {
+  documentId: string;
+  documentTags: TagLike[];
+  allTags: DBTag[];
+  onSetTags: (documentId: string, tagIds: string[]) => Promise<any>;
+  onCreateTag?: (name: string) => Promise<DBTag | undefined>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selectedIds = documentTags.map(t => t.id);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    if (open) {
+      window.document.addEventListener('mousedown', handleClickOutside);
+      return () => window.document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  const applyTags = async (tagIds: string[]) => {
+    setIsSaving(true);
+    try {
+      await onSetTags(documentId, tagIds);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const toggle = (tagId: string) => {
+    const next = selectedIds.includes(tagId)
+      ? selectedIds.filter(id => id !== tagId)
+      : [...selectedIds, tagId];
+    applyTags(next);
+  };
+
+  const handleCreate = async () => {
+    const name = search.trim();
+    if (!name || !onCreateTag) return;
+    setIsSaving(true);
+    try {
+      const created = await onCreateTag(name);
+      if (created) {
+        await onSetTags(documentId, [...selectedIds, created.id]);
+        setSearch('');
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const filtered = allTags.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
+  const exactMatch = allTags.some(t => t.name.toLowerCase() === search.trim().toLowerCase());
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(o => !o)}
+        disabled={isSaving}
+        className="text-xs"
+        title="Manage tags"
+      >
+        {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <TagIcon className="h-3 w-3" />}
+      </Button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-10">
+          <div className="p-2 border-b">
+            <div className="relative">
+              <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search or create tag..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-7 pr-2 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+          <div className="p-1 max-h-52 overflow-y-auto">
+            {filtered.map(tag => {
+              const checked = selectedIds.includes(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => toggle(tag.id)}
+                  disabled={isSaving}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-100 rounded text-left disabled:opacity-50"
+                >
+                  <span className={`h-4 w-4 flex items-center justify-center border rounded ${checked ? 'bg-primary border-primary' : 'border-gray-300'}`}>
+                    {checked && <Check className="h-3 w-3 text-white" />}
+                  </span>
+                  <TagChip tag={tag} />
+                </button>
+              );
+            })}
+            {filtered.length === 0 && !search.trim() && (
+              <div className="px-3 py-2 text-sm text-muted-foreground">No tags yet</div>
+            )}
+            {onCreateTag && search.trim() && !exactMatch && (
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={isSaving}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-100 rounded text-left text-primary disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create &ldquo;{search.trim()}&rdquo;
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

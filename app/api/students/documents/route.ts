@@ -56,7 +56,14 @@ export async function GET(request: NextRequest) {
 
     const data = await query<DBDocument & { is_published: boolean }>(
       `SELECT d.*,
-              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published
+              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
+              COALESCE(
+                (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
+                 FROM docq_mint_document_tags dt
+                 JOIN docq_mint_tags t ON t.id = dt.tag_id
+                 WHERE dt.document_id = d.id),
+                '[]'
+              ) as tags
        FROM docq_mint_documents d
        WHERE ${where}
        ORDER BY d.created_at ${sortOrder}

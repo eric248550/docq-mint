@@ -57,6 +57,16 @@ export interface DBDocument {
   issued_at: Date | null;             // Source of truth: when document was issued as NFT
   created_at: Date;
   is_published?: boolean;              // Computed: issued_at IS NOT NULL
+  tags?: DBTag[];                      // Computed: tags attached to this document (list endpoints only)
+}
+
+export interface DBTag {
+  id: string;
+  school_id: string;
+  name: string;
+  color: string | null;
+  created_by: string | null;
+  created_at: Date;
 }
 
 export interface DBNFT {

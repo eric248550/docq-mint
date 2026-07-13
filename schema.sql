@@ -194,6 +194,7 @@ ON docq_mint_verifier_memberships(user_id);
 
 -- ------------------------------------------------------------
 -- PAYMENTS TABLE
+-- ------------------------------------------------------------
 CREATE TABLE docq_mint_payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -212,5 +213,32 @@ CREATE TABLE docq_mint_payments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Migration: add logo_url to existing schools table
--- ALTER TABLE docq_mint_schools ADD COLUMN IF NOT EXISTS logo_url TEXT;
+-- ------------------------------------------------------------
+-- TAGS TABLE  (per-school custom label vocabulary)
+-- ------------------------------------------------------------
+CREATE TABLE docq_mint_tags (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id   UUID NOT NULL REFERENCES docq_mint_schools(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,               -- e.g. "2024 Cohort" | "Scholarship" | "Needs Review"
+  color       TEXT,                        -- optional hex for UI chips, e.g. "#3b82f6"
+  created_by  UUID REFERENCES docq_mint_users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One tag name per school, case-insensitive ("Scholarship" == "scholarship")
+CREATE UNIQUE INDEX idx_docq_mint_tags_school_name ON docq_mint_tags(school_id, lower(name));
+
+CREATE INDEX idx_docq_mint_tags_school ON docq_mint_tags(school_id);
+
+-- ------------------------------------------------------------
+-- DOCUMENT <-> TAG JOIN TABLE  (many-to-many)
+-- ------------------------------------------------------------
+CREATE TABLE docq_mint_document_tags (
+  document_id UUID NOT NULL REFERENCES docq_mint_documents(id) ON DELETE CASCADE,
+  tag_id      UUID NOT NULL REFERENCES docq_mint_tags(id)      ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (document_id, tag_id)        -- prevents attaching the same tag twice
+);
+-- Speeds up "which documents have tag X" (the filter query direction)
+CREATE INDEX idx_docq_mint_document_tags_tag ON docq_mint_document_tags(tag_id);
