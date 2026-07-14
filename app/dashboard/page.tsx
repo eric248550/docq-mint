@@ -7,14 +7,13 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { SchoolAdminDashboard } from '@/components/SchoolAdminDashboard';
 import { StudentDashboard } from '@/components/StudentDashboard';
 import { VerifierDashboard } from '@/components/VerifierDashboard';
-import { Button } from '@/components/ui/button';
-import { Loader2, LogOut, User } from 'lucide-react';
-import { logout } from '@/lib/firebase/auth';
+import { Header } from '@/components/Header';
+import { Loader2 } from 'lucide-react';
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const { identityContext, clearIdentityContext } = useAuthStore();
+  const { identityContext } = useAuthStore();
 
   useEffect(() => {
     if (authLoading) return;
@@ -27,17 +26,6 @@ export default function DashboardPage() {
     }
   }, [user, isAuthenticated, authLoading, identityContext, router]);
 
-  const handleChangeIdentity = () => {
-    clearIdentityContext();
-    router.push('/identity');
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    clearIdentityContext();
-    router.push('/');
-  };
-
   if (authLoading || !identityContext) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -48,25 +36,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen">
-      <div className="border-b">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">
-            DOCQ Mint - {identityContext === 'student' ? 'User Portal' : identityContext === 'verifier' ? 'Verifier Portal' : 'Organization Portal'}
-          </h1>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleChangeIdentity}>
-              Change Role
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => router.push('/settings/profile')} title="Profile settings">
-              <User className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" onClick={handleLogout}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign Out
-            </Button>
-          </div>
-        </div>
-      </div>
+      <Header />
 
       <div className="container mx-auto px-4 py-8">
         {identityContext === 'school_admin' && <SchoolAdminDashboard />}

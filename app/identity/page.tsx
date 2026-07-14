@@ -1,6 +1,7 @@
 'use client';
 
 import { IdentitySelector } from '@/components/IdentitySelector';
+import { Header } from '@/components/Header';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -31,8 +32,11 @@ export default function IdentityPage() {
   }
 
   return (
-    <main className="min-h-screen py-12 px-4">
-      <IdentitySelector />
+    <main className="min-h-screen">
+      <Header />
+      <div className="py-12 px-4">
+        <IdentitySelector />
+      </div>
     </main>
   );
 }
