@@ -49,7 +49,8 @@ export function AuthExample() {
       setPassword('')
       setFirstName('')
       setLastName('')
-      router.push('/identity')
+      // New email/password accounts are always unverified — send them to verify
+      router.push('/auth/verify-email')
     }
   }
 
@@ -66,8 +67,12 @@ export function AuthExample() {
     } else {
       setEmail('')
       setPassword('')
-      // Redirect to identity selection after successful signin
-      router.push('/identity')
+      // Unverified accounts must confirm their email before proceeding
+      if (signedInUser && !signedInUser.emailVerified) {
+        router.push('/auth/verify-email')
+      } else {
+        router.push('/identity')
+      }
     }
   }
 
@@ -130,8 +135,8 @@ export function AuthExample() {
         </div>
         
         <div className="flex gap-2 w-full">
-          <Button 
-            onClick={() => router.push('/identity')} 
+          <Button
+            onClick={() => router.push(user.emailVerified ? '/identity' : '/auth/verify-email')}
             className="flex-1"
           >
             Continue

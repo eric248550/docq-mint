@@ -6,14 +6,17 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 export default function IdentityPage() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (isLoading) return;
+    if (!isAuthenticated) {
       router.push('/');
+    } else if (user && !user.emailVerified) {
+      router.push('/auth/verify-email');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [user, isAuthenticated, isLoading, router]);
 
   if (isLoading) {
     return (
@@ -23,7 +26,7 @@ export default function IdentityPage() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || (user && !user.emailVerified)) {
     return null;
   }
 

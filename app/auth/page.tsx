@@ -14,7 +14,11 @@ function AuthContent() {
 
   useEffect(() => {
     if (!isLoading && user) {
-      router.push(redirect || '/identity');
+      if (!user.emailVerified) {
+        router.push('/auth/verify-email');
+      } else {
+        router.push(redirect || '/identity');
+      }
     }
   }, [user, isLoading, router, redirect]);
 

@@ -8,7 +8,8 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendEmailVerification
 } from "firebase/auth"
 import { auth } from "./config"
 import { useAuthStore } from "@/store/useAuthStore"
@@ -27,9 +28,27 @@ export const signIn = async (email: string, password: string) => {
 export const signUp = async (email: string, password: string) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+    // Send a verification email immediately after account creation
+    await sendEmailVerification(userCredential.user)
     return { user: userCredential.user, error: null }
   } catch (error: any) {
     return { user: null, error: error.message }
+  }
+}
+
+// Resend the email verification link to the currently signed-in user
+export const resendEmailVerification = async () => {
+  try {
+    if (!auth.currentUser) {
+      return { error: "No user is signed in" }
+    }
+    if (auth.currentUser.emailVerified) {
+      return { error: "Email is already verified" }
+    }
+    await sendEmailVerification(auth.currentUser)
+    return { error: null }
+  } catch (error: any) {
+    return { error: error.message }
   }
 }
 

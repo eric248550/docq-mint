@@ -13,16 +13,19 @@ import { logout } from '@/lib/firebase/auth';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { identityContext, clearIdentityContext } = useAuthStore();
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
+    if (authLoading) return;
+    if (!isAuthenticated) {
       router.push('/');
-    } else if (!authLoading && isAuthenticated && !identityContext) {
+    } else if (user && !user.emailVerified) {
+      router.push('/auth/verify-email');
+    } else if (!identityContext) {
       router.push('/identity');
     }
-  }, [isAuthenticated, authLoading, identityContext, router]);
+  }, [user, isAuthenticated, authLoading, identityContext, router]);
 
   const handleChangeIdentity = () => {
     clearIdentityContext();

@@ -7,6 +7,7 @@ import { createWalletForOwner } from '@/lib/wallet/cardano';
 export interface AuthContext {
   firebaseUid: string;
   email?: string;
+  emailVerified: boolean;
   dbUser: DBUser | null;
 }
 
@@ -32,6 +33,14 @@ export async function withAuth(
       return NextResponse.json(
         { error: 'Invalid authorization token' },
         { status: 401 }
+      );
+    }
+
+    // Require a verified email before granting access to protected resources
+    if (!firebaseUser.emailVerified) {
+      return NextResponse.json(
+        { error: 'Email not verified', code: 'email-not-verified' },
+        { status: 403 }
       );
     }
 
@@ -74,6 +83,7 @@ export async function withAuth(
     return await handler({
       firebaseUid: firebaseUser.uid,
       email: firebaseUser.email,
+      emailVerified: firebaseUser.emailVerified,
       dbUser,
     });
   } catch (error) {

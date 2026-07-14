@@ -40,13 +40,14 @@ export function extractFirebaseToken(request: NextRequest): string | null {
 /**
  * Verify Firebase ID token using Firebase Admin SDK
  */
-export async function verifyFirebaseToken(token: string): Promise<{ uid: string; email?: string } | null> {
+export async function verifyFirebaseToken(token: string): Promise<{ uid: string; email?: string; emailVerified: boolean } | null> {
   try {
     const app = getAdminApp();
     const decodedToken = await admin.auth(app).verifyIdToken(token);
     return {
       uid: decodedToken.uid,
       email: decodedToken.email,
+      emailVerified: decodedToken.email_verified ?? false,
     };
   } catch (error) {
     console.error('Firebase token verification error:', error);
