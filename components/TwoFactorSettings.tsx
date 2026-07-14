@@ -13,7 +13,16 @@ import {
   getPrimaryProviderId,
 } from '@/lib/firebase/auth';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, ShieldOff, Loader2, Copy, Check } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { ShieldCheck, ShieldOff, Loader2, Copy, Check, Smartphone } from 'lucide-react';
 
 type EnrolledFactor = { uid: string; displayName?: string | null };
 
@@ -145,158 +154,170 @@ export function TwoFactorSettings() {
   const isEnabled = factors.length > 0;
 
   return (
-    <div className="max-w-lg mt-10 pt-8 border-t">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <ShieldCheck className="h-5 w-5 text-primary" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold">Two-Factor Authentication</h2>
-          <p className="text-sm text-muted-foreground">
-            Add a one-time code from an authenticator app to your sign-in
-          </p>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 mb-4 bg-destructive/10 text-destructive rounded-md text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Status + enrolled factors */}
-      {isEnabled && stage === 'idle' && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm text-green-600">
-            <ShieldCheck className="h-4 w-4" />
-            Two-factor authentication is <strong>on</strong>.
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <div className="flex items-center gap-4">
+          <div
+            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${
+              isEnabled ? 'bg-emerald-100 dark:bg-emerald-500/10' : 'bg-primary/10'
+            }`}
+          >
+            <ShieldCheck
+              className={`h-6 w-6 ${isEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-primary'}`}
+            />
           </div>
-          {factors.map((f) => (
-            <div
-              key={f.uid}
-              className="flex items-center justify-between p-3 border rounded-md"
-            >
-              <span className="text-sm">{f.displayName || 'Authenticator app'}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={() => beginUnenroll(f.uid)}
-              >
-                <ShieldOff className="h-4 w-4 mr-2" />
-                Remove
-              </Button>
-            </div>
-          ))}
+          <div>
+            <CardTitle>Two-Factor Authentication</CardTitle>
+            <CardDescription>
+              Add a one-time code from an authenticator app to your sign-in
+            </CardDescription>
+          </div>
         </div>
-      )}
+        <Badge variant={isEnabled ? 'success' : 'secondary'} className="whitespace-nowrap">
+          {isEnabled ? 'Enabled' : 'Disabled'}
+        </Badge>
+      </CardHeader>
 
-      {!isEnabled && stage === 'idle' && (
-        <Button onClick={beginEnroll} disabled={loading}>
-          {loading ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <ShieldCheck className="h-4 w-4 mr-2" />
-          )}
-          Enable two-factor authentication
-        </Button>
-      )}
+      <CardContent className="space-y-4">
+        {error && (
+          <div className="p-3 bg-destructive/10 text-destructive rounded-md text-sm">
+            {error}
+          </div>
+        )}
 
-      {/* Re-auth step */}
-      {stage === 'reauth' && (
-        <div className="space-y-4 p-4 border rounded-md">
-          <p className="text-sm text-muted-foreground">
-            For your security, please confirm your identity to continue.
-          </p>
-          {isPasswordUser ? (
-            <>
-              <input
-                type="password"
-                placeholder="Your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+        {/* Status + enrolled factors */}
+        {isEnabled && stage === 'idle' && (
+          <div className="space-y-2">
+            {factors.map((f) => (
+              <div
+                key={f.uid}
+                className="flex items-center justify-between rounded-lg border bg-muted/40 p-3"
+              >
+                <div className="flex items-center gap-3">
+                  <Smartphone className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">{f.displayName || 'Authenticator app'}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => beginUnenroll(f.uid)}
+                >
+                  <ShieldOff className="h-4 w-4 mr-2" />
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isEnabled && stage === 'idle' && (
+          <Button onClick={beginEnroll} disabled={loading}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <ShieldCheck className="h-4 w-4 mr-2" />
+            )}
+            Enable two-factor authentication
+          </Button>
+        )}
+
+        {/* Re-auth step */}
+        {stage === 'reauth' && (
+          <div className="space-y-4 rounded-lg border bg-muted/40 p-4">
+            <p className="text-sm text-muted-foreground">
+              For your security, please confirm your identity to continue.
+            </p>
+            {isPasswordUser ? (
+              <>
+                <Input
+                  type="password"
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button onClick={doReauth} disabled={loading || !password}>
+                    {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Confirm
+                  </Button>
+                  <Button variant="ghost" onClick={resetFlow} disabled={loading}>
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            ) : (
               <div className="flex gap-2">
-                <Button onClick={doReauth} disabled={loading || !password}>
+                <Button onClick={doReauth} disabled={loading}>
                   {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Confirm
+                  Confirm with Google
                 </Button>
                 <Button variant="ghost" onClick={resetFlow} disabled={loading}>
                   Cancel
                 </Button>
               </div>
-            </>
-          ) : (
+            )}
+          </div>
+        )}
+
+        {/* QR + code entry */}
+        {stage === 'qr' && (
+          <div className="space-y-4 rounded-lg border bg-muted/40 p-4">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Step 1.</span> Scan this QR code with
+              an authenticator app (Google Authenticator, Authy, 1Password, etc.).
+            </p>
+            {qrUrl && (
+              <div className="flex justify-center rounded-lg border bg-white p-4 w-fit mx-auto shadow-sm">
+                <QRCodeSVG value={qrUrl} size={180} />
+              </div>
+            )}
+
+            {secret && (
+              <div className="text-center">
+                <p className="text-xs text-muted-foreground mb-1">
+                  Or enter this key manually:
+                </p>
+                <button
+                  type="button"
+                  onClick={copySecret}
+                  className="inline-flex items-center gap-2 font-mono text-sm bg-background border px-3 py-1.5 rounded-md hover:bg-accent transition-colors"
+                >
+                  {secret.secretKey}
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Step 2.</span> Enter the 6-digit code
+              from the app to finish:
+            </p>
+            <Input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="text-center text-lg tracking-[0.3em] font-mono"
+            />
+
             <div className="flex gap-2">
-              <Button onClick={doReauth} disabled={loading}>
+              <Button onClick={confirmEnroll} disabled={loading || code.length !== 6}>
                 {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Confirm with Google
+                Verify &amp; enable
               </Button>
               <Button variant="ghost" onClick={resetFlow} disabled={loading}>
                 Cancel
               </Button>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* QR + code entry */}
-      {stage === 'qr' && (
-        <div className="space-y-4 p-4 border rounded-md">
-          <p className="text-sm text-muted-foreground">
-            1. Scan this QR code with an authenticator app (Google Authenticator,
-            Authy, 1Password, etc.).
-          </p>
-          {qrUrl && (
-            <div className="flex justify-center bg-white p-4 rounded-md w-fit mx-auto">
-              <QRCodeSVG value={qrUrl} size={180} />
-            </div>
-          )}
-
-          {secret && (
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground mb-1">
-                Or enter this key manually:
-              </p>
-              <button
-                type="button"
-                onClick={copySecret}
-                className="inline-flex items-center gap-2 font-mono text-sm bg-muted px-3 py-1.5 rounded-md hover:bg-muted/70"
-              >
-                {secret.secretKey}
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-green-600" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
-            </div>
-          )}
-
-          <p className="text-sm text-muted-foreground">
-            2. Enter the 6-digit code from the app to finish:
-          </p>
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="123456"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="w-full px-3 py-2 border rounded-md bg-background text-center text-lg tracking-[0.3em] font-mono focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-
-          <div className="flex gap-2">
-            <Button onClick={confirmEnroll} disabled={loading || code.length !== 6}>
-              {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Verify &amp; enable
-            </Button>
-            <Button variant="ghost" onClick={resetFlow} disabled={loading}>
-              Cancel
-            </Button>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
