@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { signIn, signUp, logout, signInWithGoogle, resetPassword } from '@/lib/firebase/auth'
+import type { MultiFactorResolver } from 'firebase/auth'
+import { signIn, signUp, logout, signInWithGoogle, resetPassword, resolveTotpSignIn } from '@/lib/firebase/auth'
 import { useAuthStore } from '@/store/useAuthStore'
+import { LogIn, LogOut, UserPlus, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { LogIn, LogOut, UserPlus, ArrowRight } from 'lucide-react'
 
 export function AuthExample() {
   const { user, isLoading } = useAuthStore()
@@ -20,6 +21,9 @@ export function AuthExample() {
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
   const [resetSent, setResetSent] = useState(false)
+  // 2FA challenge state — set when a sign-in requires a TOTP code
+  const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -59,8 +63,15 @@ export function AuthExample() {
     setLoading(true)
     setError(null)
     
-    const { user: signedInUser, error: signInError } = await signIn(email, password)
-    
+    const { user: signedInUser, error: signInError, mfaResolver: resolver } = await signIn(email, password)
+
+    if (resolver) {
+      // 2FA enabled — prompt for the authenticator code
+      setMfaResolver(resolver)
+      setLoading(false)
+      return
+    }
+
     if (signInError) {
       setError(signInError)
       setLoading(false)
@@ -76,12 +87,42 @@ export function AuthExample() {
     }
   }
 
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mfaResolver) return
+    setLoading(true)
+    setError(null)
+
+    const { user: mfaUser, error: mfaError } = await resolveTotpSignIn(mfaResolver, mfaCode.trim())
+
+    if (mfaError) {
+      setError(mfaError)
+      setLoading(false)
+    } else {
+      setMfaResolver(null)
+      setMfaCode('')
+      setEmail('')
+      setPassword('')
+      if (mfaUser && !mfaUser.emailVerified) {
+        router.push('/auth/verify-email')
+      } else {
+        router.push('/identity')
+      }
+    }
+  }
+
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setError(null)
     
-    const { user: googleUser, error: googleError } = await signInWithGoogle()
-    
+    const { error: googleError, mfaResolver: resolver } = await signInWithGoogle()
+
+    if (resolver) {
+      setMfaResolver(resolver)
+      setLoading(false)
+      return
+    }
+
     if (googleError) {
       setError(googleError)
       setLoading(false)
@@ -153,6 +194,58 @@ export function AuthExample() {
           <LogOut className="mr-2 h-4 w-4" />
           Sign Out
         </Button>
+      </div>
+    )
+  }
+
+  if (mfaResolver) {
+    return (
+      <div className="flex flex-col gap-6 p-8 border rounded-lg max-w-md w-full bg-card">
+        <div className="text-center">
+          <div className="mx-auto p-3 bg-primary/10 rounded-full w-fit mb-3">
+            <ShieldCheck className="h-6 w-6 text-primary" />
+          </div>
+          <h2 className="text-xl font-bold mb-1">Two-factor authentication</h2>
+          <p className="text-sm text-muted-foreground">
+            Enter the 6-digit code from your authenticator app.
+          </p>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-destructive/10 text-destructive rounded-md text-sm">
+            {error}
+          </div>
+        )}
+
+        <form className="flex flex-col gap-4" onSubmit={handleMfaSubmit}>
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            placeholder="123456"
+            value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            className="w-full px-4 py-2 border rounded-md bg-background text-center text-lg tracking-[0.3em] font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+            disabled={loading}
+          />
+          <Button type="submit" disabled={loading || mfaCode.length !== 6} className="w-full">
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Verify
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={() => {
+              setMfaResolver(null)
+              setMfaCode('')
+              setError(null)
+            }}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+        </form>
       </div>
     )
   }

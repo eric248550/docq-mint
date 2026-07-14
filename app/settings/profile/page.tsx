@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { ProfileSettings } from '@/components/ProfileSettings';
+import { TwoFactorSettings } from '@/components/TwoFactorSettings';
 import { Button } from '@/components/ui/button';
 import { Loader2, ArrowLeft } from 'lucide-react';
 
@@ -40,6 +41,7 @@ export default function ProfileSettingsPage() {
       </div>
       <div className="container mx-auto px-4 py-8">
         <ProfileSettings />
+        <TwoFactorSettings />
       </div>
     </main>
   );
