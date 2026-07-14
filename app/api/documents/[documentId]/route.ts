@@ -241,6 +241,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
+    // Published (minted) documents are immutable on-chain records — block deletion
+    if (document.issued_at) {
+      return NextResponse.json(
+        { error: 'Cannot delete a document that has already been published to the blockchain' },
+        { status: 400 }
+      );
+    }
+
     await query('DELETE FROM docq_mint_documents WHERE id = $1', [documentId]);
 
     return NextResponse.json({ success: true });

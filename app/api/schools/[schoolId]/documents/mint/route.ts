@@ -71,6 +71,28 @@ export async function POST(
         return NextResponse.json({ error: 'Custody wallet not found' }, { status: 404 });
       }
 
+      // ALL minting operations must be processed via QStash
+      // This decouples minting from HTTP request lifecycle and supports retries
+      if (!qstashClient) {
+        return NextResponse.json(
+          { error: 'QStash is not configured. Please set QSTASH_TOKEN environment variable.' },
+          { status: 500 }
+        );
+      }
+
+      // Compute + validate the webhook URL BEFORE touching document state — if this
+      // fails (e.g. running locally without NEXT_PUBLIC_APP_URL), nothing should be
+      // marked as issued.
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
+      const webhookUrl = `${baseUrl}/api/schools/${schoolId}/documents/mint/process`;
+
+      if (webhookUrl.includes('localhost') && !process.env.QSTASH_URL?.includes('localhost')) {
+        return NextResponse.json(
+          { error: 'Production QStash requires a publicly accessible webhook URL. Please set NEXT_PUBLIC_APP_URL environment variable.' },
+          { status: 500 }
+        );
+      }
+
       // CRITICAL: Use issued_at as source of truth to prevent double-minting
       // Atomically mark documents as issued and retrieve them in one query
       // This prevents race condition if user clicks "Publish" twice
@@ -108,64 +130,59 @@ export async function POST(
         );
       }
 
-      // ALL minting operations must be processed via QStash
-      // This decouples minting from HTTP request lifecycle and supports retries
-      if (!qstashClient) {
-        return NextResponse.json(
-          { error: 'QStash is not configured. Please set QSTASH_TOKEN environment variable.' },
-          { status: 500 }
-        );
-      }
-
-      // Create pending NFT records in database
-      // These will be updated to 'minted' after on-chain confirmation
+      // From this point on, documents are marked as issued. If anything below fails,
+      // we must roll that back so documents don't end up "published" with no NFT job.
       const pendingNFTs: string[] = [];
-      for (const doc of documents) {
-        const nftRecord = await queryOne<DBNFT>(
-          `INSERT INTO docq_mint_nfts 
-           (document_id, policy_id, asset_name, metadata, metadata_hash, tx_hash, custody_wallet_id, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING *`,
-          [
-            doc.id,
-            '', // Will be set after minting
-            '', // Will be set after minting
-            JSON.stringify({}), // Will be set after minting
-            '',
-            '', // Will be set after minting
-            school.custody_wallet_id,
-            'pending',
-          ]
-        );
-        if (nftRecord) {
-          pendingNFTs.push(nftRecord.id);
+      try {
+        // Create pending NFT records in database
+        // These will be updated to 'minted' after on-chain confirmation
+        for (const doc of documents) {
+          const nftRecord = await queryOne<DBNFT>(
+            `INSERT INTO docq_mint_nfts 
+             (document_id, policy_id, asset_name, metadata, metadata_hash, tx_hash, custody_wallet_id, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING *`,
+            [
+              doc.id,
+              '', // Will be set after minting
+              '', // Will be set after minting
+              JSON.stringify({}), // Will be set after minting
+              '',
+              '', // Will be set after minting
+              school.custody_wallet_id,
+              'pending',
+            ]
+          );
+          if (nftRecord) {
+            pendingNFTs.push(nftRecord.id);
+          }
         }
-      }
 
-      // Queue the minting job
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
-      const webhookUrl = `${baseUrl}/api/schools/${schoolId}/documents/mint/process`;
-      
-      // Validate webhook URL is publicly accessible
-      if (webhookUrl.includes('localhost') && !process.env.QSTASH_URL?.includes('localhost')) {
-        return NextResponse.json(
-          { error: 'Production QStash requires a publicly accessible webhook URL. Please set NEXT_PUBLIC_APP_URL environment variable.' },
-          { status: 500 }
+        console.log(`📤 Queuing minting job to: ${webhookUrl}`);
+
+        await qstashClient.publishJSON({
+          url: webhookUrl,
+          body: {
+            schoolId,
+            documentIds: documents.map(d => d.id),
+            custodyWalletId: school.custody_wallet_id,
+            network: custodyWallet.network,
+            pendingNFTIds: pendingNFTs,
+          },
+        });
+      } catch (queueError) {
+        // Roll back: unmark issued_at and remove any pending NFT records we created,
+        // since the minting job never actually got queued.
+        const documentIssuedIds = documents.map(d => d.id);
+        await query(
+          `UPDATE docq_mint_documents SET issued_at = NULL WHERE id = ANY($1)`,
+          [documentIssuedIds]
         );
+        if (pendingNFTs.length > 0) {
+          await query(`DELETE FROM docq_mint_nfts WHERE id = ANY($1)`, [pendingNFTs]);
+        }
+        throw queueError;
       }
-      
-      console.log(`📤 Queuing minting job to: ${webhookUrl}`);
-      
-      await qstashClient.publishJSON({
-        url: webhookUrl,
-        body: {
-          schoolId,
-          documentIds: documents.map(d => d.id),
-          custodyWalletId: school.custody_wallet_id,
-          network: custodyWallet.network,
-          pendingNFTIds: pendingNFTs,
-        },
-      });
 
       return NextResponse.json({
         success: true,

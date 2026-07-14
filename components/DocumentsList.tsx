@@ -118,6 +118,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const [isBatchUploading, setIsBatchUploading] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
   const [mintingDocId, setMintingDocId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
 
   const { modal, showAlert, showConfirm, closeModal } = useModal();
 
@@ -206,8 +208,45 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const failedCount = uploadQueue.filter((item) => item.status === 'error').length;
   const uploadingCount = uploadQueue.filter((item) => item.status === 'uploading').length;
 
-  // Get unminted documents
+  // Get unminted documents — published documents cannot be published again or deleted,
+  // so only unpublished documents are selectable for bulk actions.
   const unmintedDocuments = documents.filter(doc => !doc.is_published);
+  const unmintedIds = unmintedDocuments.map(doc => doc.id);
+  const selectedUnmintedIds = unmintedIds.filter(id => selectedIds.has(id));
+  const selectedCount = selectedUnmintedIds.length;
+  const allUnmintedSelected = unmintedIds.length > 0 && selectedCount === unmintedIds.length;
+
+  // Drop any selected ids that are no longer present or have since been published
+  useEffect(() => {
+    setSelectedIds(prev => {
+      const validIds = new Set(documents.filter(doc => !doc.is_published).map(doc => doc.id));
+      const next = new Set([...prev].filter(id => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [documents]);
+
+  const toggleSelectDocument = (documentId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(documentId)) {
+        next.delete(documentId);
+      } else {
+        next.add(documentId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllUnminted = () => {
+    setSelectedIds(prev => {
+      if (allUnmintedSelected) {
+        const next = new Set(prev);
+        unmintedIds.forEach(id => next.delete(id));
+        return next;
+      }
+      return new Set([...prev, ...unmintedIds]);
+    });
+  };
 
   // Fetch students for the assign dropdown; search is driven by DocumentRow via handleSearchStudents
   useEffect(() => {
@@ -522,6 +561,40 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    const documentIds = [...selectedIds];
+    if (documentIds.length === 0) return;
+
+    const confirmed = await showConfirm(
+      `Are you sure you want to delete ${documentIds.length} document${documentIds.length !== 1 ? 's' : ''}? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingSelected(true);
+    try {
+      const results = await Promise.allSettled(documentIds.map((id) => deleteDocument(id)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const succeeded = results.length - failed;
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        documentIds.forEach((id, i) => {
+          if (results[i].status === 'fulfilled') next.delete(id);
+        });
+        return next;
+      });
+
+      if (failed > 0) {
+        await showAlert(`Deleted ${succeeded} document(s). ${failed} failed to delete.`);
+      }
+    } catch (error) {
+      console.error('Failed to delete selected documents:', error);
+      await showAlert('Failed to delete selected documents');
+    } finally {
+      setIsDeletingSelected(false);
+    }
+  };
+
   const handleMintDocuments = async (documentIds: string[]) => {
     if (documentIds.length === 0) {
       await showAlert('No documents to publish');
@@ -580,8 +653,12 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   };
 
   const handleMintAll = async () => {
-    const unmintedIds = unmintedDocuments.map(doc => doc.id);
     await handleMintDocuments(unmintedIds);
+  };
+
+  const handleMintSelected = async () => {
+    await handleMintDocuments(selectedUnmintedIds);
+    setSelectedIds(new Set());
   };
 
   const handleMintSingle = async (documentId: string) => {
@@ -646,11 +723,31 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         </h3>
         {!limit && (
           <div className="flex gap-2">
+            {selectedUnmintedIds.length > 0 && (
+              <Button
+                onClick={handleMintSelected}
+                size="sm"
+                variant="default"
+                disabled={isMinting}
+              >
+                {isMinting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Publishing...
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="h-4 w-4 mr-2" />
+                    Publish Selected ({selectedUnmintedIds.length})
+                  </>
+                )}
+              </Button>
+            )}
             {unmintedDocuments.length > 0 && (
               <Button
                 onClick={handleMintAll}
                 size="sm"
-                variant="default"
+                variant={selectedUnmintedIds.length > 0 ? 'outline' : 'default'}
                 disabled={isMinting}
               >
                 {isMinting ? (
@@ -666,6 +763,26 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                 )}
               </Button>
             )}
+            {selectedCount > 0 && (
+              <Button
+                onClick={handleDeleteSelected}
+                size="sm"
+                variant="destructive"
+                disabled={isDeletingSelected}
+              >
+                {isDeletingSelected ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Selected ({selectedCount})
+                  </>
+                )}
+              </Button>
+            )}
             <Button onClick={() => setShowUploadForm(!showUploadForm)} size="sm" variant="outline">
               <Upload className="h-4 w-4 mr-2" />
               Upload Document
@@ -673,6 +790,18 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           </div>
         )}
       </div>
+
+      {!limit && unmintedDocuments.length > 0 && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={allUnmintedSelected}
+            onChange={toggleSelectAllUnminted}
+            className="h-4 w-4 rounded border-gray-300 accent-primary cursor-pointer"
+          />
+          {selectedCount > 0 ? `${selectedCount} selected` : `Select all unpublished (${unmintedDocuments.length})`}
+        </label>
+      )}
 
       {/* Filter controls – full view only */}
       {!limit && (
@@ -1111,6 +1240,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               onSetTags={!limit ? handleSetTags : undefined}
               onCreateTag={!limit ? handleCreateTag : undefined}
               isMinting={mintingDocId === doc.id}
+              isSelected={selectedIds.has(doc.id)}
+              onToggleSelect={!limit ? toggleSelectDocument : undefined}
             />
           ))}
         </div>
@@ -1162,9 +1293,11 @@ interface DocumentRowProps {
   onSetTags?: (documentId: string, tagIds: string[]) => Promise<any>;
   onCreateTag?: (name: string) => Promise<DBTag | undefined>;
   isMinting?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (documentId: string) => void;
 }
 
-function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, onSearchStudents, onSetTags, onCreateTag, isMinting }: DocumentRowProps) {
+function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, onSearchStudents, onSetTags, onCreateTag, isMinting, isSelected, onToggleSelect }: DocumentRowProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -1279,6 +1412,15 @@ function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, 
         onCancel={() => closeModal(false)}
       />
       <div className="flex items-center gap-3 flex-1">
+        {onToggleSelect && !document.is_published && (
+          <input
+            type="checkbox"
+            checked={!!isSelected}
+            onChange={() => onToggleSelect(document.id)}
+            className="h-4 w-4 rounded border-gray-300 accent-primary cursor-pointer shrink-0"
+            aria-label={`Select ${document.original_filename || getDocumentTypeLabel(document.document_type)}`}
+          />
+        )}
         <FileText className="h-5 w-5 text-primary" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -1420,11 +1562,12 @@ function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, 
             <Download className="h-4 w-4" />
           )}
         </Button>
-        {onDelete && (
+        {onDelete && !document.is_published && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => onDelete(document.id)}
+            title="Delete document"
           >
             <Trash2 className="h-4 w-4 text-red-500" />
           </Button>

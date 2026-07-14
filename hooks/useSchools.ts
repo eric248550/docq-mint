@@ -296,7 +296,7 @@ export function useSchoolDocuments(schoolId: string | null) {
 
     if (response.error) throw new Error(response.error);
     if (response.data) {
-      setDocuments([response.data.document, ...documents]);
+      setDocuments(prev => [response.data!.document, ...prev]);
       return response.data.document;
     }
   };
@@ -320,7 +320,7 @@ export function useSchoolDocuments(schoolId: string | null) {
 
     if (response.error) throw new Error(response.error);
     if (response.data) {
-      setDocuments(documents.map(d =>
+      setDocuments(prev => prev.map(d =>
         d.id === documentId ? response.data!.document : d
       ));
       return response.data.document;
@@ -338,7 +338,7 @@ export function useSchoolDocuments(schoolId: string | null) {
     );
 
     if (response.error) throw new Error(response.error);
-    setDocuments(documents.filter(d => d.id !== documentId));
+    setDocuments(prev => prev.filter(d => d.id !== documentId));
   };
 
   return {
