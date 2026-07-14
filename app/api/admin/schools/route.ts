@@ -4,8 +4,7 @@ import { query, queryOne } from '@/lib/db/config';
 import { DBSchool, DBUser } from '@/lib/db/types';
 import { createWalletForOwner } from '@/lib/wallet/cardano';
 import { sendSchoolCreatedEmail } from '@/lib/ses/send-school-created';
-
-const ADMIN_EMAIL_DOMAIN = 'docq-mint.com';
+import { isAdminEmail } from '@/lib/auth/admin';
 
 /**
  * POST /api/admin/schools
@@ -15,8 +14,8 @@ export async function POST(request: NextRequest) {
   return withAuth(request, async (authContext) => {
     const { email: callerEmail } = authContext;
 
-    // Restrict to docq-mint.com emails
-    if (!callerEmail || !callerEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`)) {
+    // Restrict to docq-mint.com emails (plus whitelisted external admins)
+    if (!isAdminEmail(callerEmail)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

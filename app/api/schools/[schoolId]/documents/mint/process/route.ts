@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db/config';
 import { mintDocuments } from '@/lib/wallet/cardano';
 import { DBDocument, DBSchool, DBNFT } from '@/lib/db/types';
+import { refundCredits } from '@/lib/credits';
 import { BlockfrostProvider } from '@meshsdk/core';
 
 // Helper function to verify transaction on-chain
@@ -56,9 +57,11 @@ async function handler(
 ) {
   let txHash: string | null = null;
   let pendingNFTIds: string[] = [];
+  let schoolId: string | undefined;
 
   try {
-    const { schoolId, documentIds, custodyWalletId, network, pendingNFTIds: nftIds } = body;
+    const { schoolId: bodySchoolId, documentIds, custodyWalletId, network, pendingNFTIds: nftIds } = body;
+    schoolId = bodySchoolId;
     pendingNFTIds = nftIds || [];
 
     if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
@@ -176,18 +179,43 @@ async function handler(
     console.error('❌ Failed to process minting job:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-    // Mark pending NFTs as failed
+    // Mark pending NFTs as failed and collect the documents to refund. Gating on
+    // status = 'pending' makes this idempotent — a re-delivered webhook won't
+    // refund the same document twice.
+    const refundedDocs: { documentId: string; nftId: string | null }[] = [];
     if (pendingNFTIds.length > 0) {
       for (const nftId of pendingNFTIds) {
-        await queryOne(
-          `UPDATE docq_mint_nfts 
-           SET status = $1, 
+        const updated = await queryOne<{ document_id: string }>(
+          `UPDATE docq_mint_nfts
+           SET status = $1,
                tx_hash = $2,
                metadata = jsonb_set(metadata, '{error}', to_jsonb($3::text)),
                updated_at = now()
-           WHERE id = $4`,
+           WHERE id = $4 AND status = 'pending'
+           RETURNING document_id`,
           ['failed', txHash || '', errorMessage, nftId]
         );
+        if (updated) {
+          refundedDocs.push({ documentId: updated.document_id, nftId: null });
+        }
+      }
+    }
+
+    // The mint never landed on-chain: release the document claim so it can be
+    // re-published, and refund the credits that were debited at request time.
+    if (refundedDocs.length > 0 && schoolId) {
+      try {
+        await query(
+          `UPDATE docq_mint_documents SET issued_at = NULL WHERE id = ANY($1)`,
+          [refundedDocs.map(d => d.documentId)]
+        );
+        await refundCredits({
+          schoolId,
+          documents: refundedDocs,
+          note: `Mint failed: ${errorMessage}`.slice(0, 500),
+        });
+      } catch (refundErr) {
+        console.error('Failed to refund credits after mint failure:', refundErr);
       }
     }
 

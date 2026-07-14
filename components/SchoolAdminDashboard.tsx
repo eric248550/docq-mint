@@ -6,7 +6,7 @@ import { SchoolsList } from './SchoolsList';
 import { SchoolDetails } from './SchoolDetails';
 import { DocumentsList } from './DocumentsList';
 import { MembersList } from './MembersList';
-import { CustodyWalletInfo } from './CustodyWalletInfo';
+import { CreditBalanceInfo } from './CreditBalanceInfo';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export function SchoolAdminDashboard() {
@@ -34,9 +34,9 @@ export function SchoolAdminDashboard() {
         <TabsContent value="overview" className="space-y-6">
           <SchoolDetails schoolId={selectedSchoolId} />
           
-          {/* Custody Wallet Section */}
+          {/* Publishing Credits Section */}
           <div>
-            <CustodyWalletInfo schoolId={selectedSchoolId} />
+            <CreditBalanceInfo schoolId={selectedSchoolId} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

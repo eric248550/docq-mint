@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
-import { query, queryOne } from '@/lib/db/config';
-import { mintDocuments } from '@/lib/wallet/cardano';
+import { query, queryOne, getClient } from '@/lib/db/config';
+import { getWalletBalanceById } from '@/lib/wallet/cardano';
 import { DBDocument, DBSchool, DBNFT } from '@/lib/db/types';
+import { debitCreditsTx, estimatedMintLovelace, CreditDocRef } from '@/lib/credits';
 import { Client } from '@upstash/qstash';
 
 // Initialize QStash client
@@ -93,71 +94,126 @@ export async function POST(
         );
       }
 
-      // CRITICAL: Use issued_at as source of truth to prevent double-minting
-      // Atomically mark documents as issued and retrieve them in one query
-      // This prevents race condition if user clicks "Publish" twice
-      const documents = await query<DBDocument>(
-        `UPDATE docq_mint_documents
-         SET issued_at = now()
-         WHERE id = ANY($1) 
-         AND school_id = $2
-         AND issued_at IS NULL
-         RETURNING *`,
-        [documentIds, schoolId]
-      );
-
-      if (documents.length === 0) {
-        // Check if documents were already issued
-        const alreadyIssued = await query<{ id: string; issued_at: Date }>(
-          `SELECT id, issued_at FROM docq_mint_documents
-           WHERE id = ANY($1) AND school_id = $2 AND issued_at IS NOT NULL`,
-          [documentIds, schoolId]
-        );
-
-        if (alreadyIssued.length > 0) {
-          return NextResponse.json(
-            { 
-              error: 'Documents have already been issued',
-              issuedDocuments: alreadyIssued 
-            },
-            { status: 409 } // Conflict
-          );
-        }
-
+      // WALLET ADA GATE: the custody wallet must be able to fund the mint. This
+      // is the real ADA that mints the docs — credits are just an authorization
+      // layer on top, so we verify both before publishing.
+      const requiredLovelace = estimatedMintLovelace(documentIds.length);
+      let walletLovelace: number;
+      try {
+        walletLovelace = Number(await getWalletBalanceById(school.custody_wallet_id));
+      } catch (balErr) {
+        console.error('Failed to verify custody wallet balance:', balErr);
         return NextResponse.json(
-          { error: 'No documents found with provided IDs' },
+          { error: 'Could not verify custody wallet balance. Please try again in a moment.' },
+          { status: 503 }
+        );
+      }
+
+      if (walletLovelace < requiredLovelace) {
+        return NextResponse.json(
+          {
+            error:
+              `Insufficient wallet balance to publish. The custody wallet needs ~${(Number(requiredLovelace) / 1_000_000).toFixed(2)} ADA ` +
+              `to mint ${documentIds.length} document(s), but only holds ~${(Number(walletLovelace) / 1_000_000).toFixed(2)} ADA.`,
+          },
           { status: 400 }
         );
       }
 
-      // From this point on, documents are marked as issued. If anything below fails,
-      // we must roll that back so documents don't end up "published" with no NFT job.
+      // Claim documents, create pending NFTs, and debit credits atomically.
+      // - issued_at as source of truth prevents double-minting on a double click.
+      // - debiting in the same transaction prevents queueing more publishes than
+      //   the school can pay for (the credit_balance >= N check is the gate).
+      const client = await getClient();
+      let documents: DBDocument[] = [];
       const pendingNFTs: string[] = [];
+      let earlyResponse: NextResponse | null = null;
       try {
-        // Create pending NFT records in database
-        // These will be updated to 'minted' after on-chain confirmation
-        for (const doc of documents) {
-          const nftRecord = await queryOne<DBNFT>(
-            `INSERT INTO docq_mint_nfts 
-             (document_id, policy_id, asset_name, metadata, metadata_hash, tx_hash, custody_wallet_id, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             RETURNING *`,
-            [
-              doc.id,
-              '', // Will be set after minting
-              '', // Will be set after minting
-              JSON.stringify({}), // Will be set after minting
-              '',
-              '', // Will be set after minting
-              school.custody_wallet_id,
-              'pending',
-            ]
+        await client.query('BEGIN');
+
+        const claimRes = await client.query<DBDocument>(
+          `UPDATE docq_mint_documents
+           SET issued_at = now()
+           WHERE id = ANY($1)
+           AND school_id = $2
+           AND issued_at IS NULL
+           RETURNING *`,
+          [documentIds, schoolId]
+        );
+        documents = claimRes.rows;
+
+        if (documents.length === 0) {
+          await client.query('ROLLBACK');
+
+          // Check if documents were already issued
+          const alreadyIssued = await query<{ id: string; issued_at: Date }>(
+            `SELECT id, issued_at FROM docq_mint_documents
+             WHERE id = ANY($1) AND school_id = $2 AND issued_at IS NOT NULL`,
+            [documentIds, schoolId]
           );
-          if (nftRecord) {
-            pendingNFTs.push(nftRecord.id);
+
+          earlyResponse = alreadyIssued.length > 0
+            ? NextResponse.json(
+                { error: 'Documents have already been issued', issuedDocuments: alreadyIssued },
+                { status: 409 } // Conflict
+              )
+            : NextResponse.json(
+                { error: 'No documents found with provided IDs' },
+                { status: 400 }
+              );
+        } else {
+          // Create pending NFT records (updated to 'minted' after confirmation)
+          // and build doc→NFT refs for the credit ledger.
+          const docRefs: CreditDocRef[] = [];
+          for (const doc of documents) {
+            const nftRes = await client.query<DBNFT>(
+              `INSERT INTO docq_mint_nfts
+               (document_id, policy_id, asset_name, metadata, metadata_hash, tx_hash, custody_wallet_id, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               RETURNING *`,
+              [doc.id, '', '', JSON.stringify({}), '', '', school.custody_wallet_id, 'pending']
+            );
+            const nftId = nftRes.rows[0]?.id ?? null;
+            if (nftId) pendingNFTs.push(nftId);
+            docRefs.push({ documentId: doc.id, nftId });
+          }
+
+          // CREDIT GATE: debit one credit per claimed document. Rolls back the
+          // whole publish (releasing the doc claim) if the school can't afford it.
+          const newBalance = await debitCreditsTx(client, {
+            schoolId,
+            documents: docRefs,
+            createdBy: dbUser.id,
+          });
+
+          if (newBalance === null) {
+            await client.query('ROLLBACK');
+            earlyResponse = NextResponse.json(
+              {
+                error:
+                  `Insufficient credits. Publishing ${documents.length} document(s) requires ${documents.length} credit(s). ` +
+                  `Please contact your administrator to top up credits.`,
+              },
+              { status: 402 } // Payment Required
+            );
+          } else {
+            await client.query('COMMIT');
           }
         }
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
 
+      if (earlyResponse) return earlyResponse;
+
+      // Queue the minting job (outside the transaction). If queuing fails, the
+      // mint will never run, so fully compensate the committed transaction:
+      // remove the debit ledger rows + pending NFTs, restore the credits, and
+      // release the document claim.
+      try {
         console.log(`📤 Queuing minting job to: ${webhookUrl}`);
 
         await qstashClient.publishJSON({
@@ -171,16 +227,20 @@ export async function POST(
           },
         });
       } catch (queueError) {
-        // Roll back: unmark issued_at and remove any pending NFT records we created,
-        // since the minting job never actually got queued.
-        const documentIssuedIds = documents.map(d => d.id);
-        await query(
-          `UPDATE docq_mint_documents SET issued_at = NULL WHERE id = ANY($1)`,
-          [documentIssuedIds]
-        );
+        console.error('Failed to queue minting job, compensating:', queueError);
         if (pendingNFTs.length > 0) {
+          // Debit ledger rows reference these NFTs — remove them first.
+          await query(`DELETE FROM docq_mint_credit_transactions WHERE nft_id = ANY($1)`, [pendingNFTs]);
           await query(`DELETE FROM docq_mint_nfts WHERE id = ANY($1)`, [pendingNFTs]);
         }
+        await query(
+          `UPDATE docq_mint_schools SET credit_balance = credit_balance + $2 WHERE id = $1`,
+          [schoolId, documents.length]
+        );
+        await query(
+          `UPDATE docq_mint_documents SET issued_at = NULL WHERE id = ANY($1)`,
+          [documents.map(d => d.id)]
+        );
         throw queueError;
       }
 

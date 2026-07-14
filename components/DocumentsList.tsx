@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useTransition } from 'react';
+import { useState, useEffect, useRef, useTransition, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchoolDocuments, useSchoolMembers, useSchoolTags } from '@/hooks/useSchools';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown, Tag as TagIcon, X, Plus, Check, FolderOpen, AlertCircle, RotateCcw } from 'lucide-react';
+import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown, Tag as TagIcon, X, Plus, Check, FolderOpen, AlertCircle, RotateCcw, Coins } from 'lucide-react';
 import { DBDocument, DBTag } from '@/lib/db/types';
 import { Modal, useModal } from '@/components/ui/alert-modal';
 import { getFileSizeLimitMB, resolveContentType } from '@/lib/uploads/limits';
@@ -120,6 +120,28 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const [mintingDocId, setMintingDocId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+
+  // Publishing credits: 1 credit is consumed per document published on-chain.
+  const refetchCredits = useCallback(async () => {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(`/api/schools/${schoolId}/credits`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCreditBalance(typeof data.balance === 'number' ? data.balance : null);
+      }
+    } catch (err) {
+      console.error('Failed to fetch credit balance:', err);
+    }
+  }, [schoolId, getAuthToken]);
+
+  useEffect(() => {
+    refetchCredits();
+  }, [refetchCredits]);
 
   const { modal, showAlert, showConfirm, closeModal } = useModal();
 
@@ -601,6 +623,14 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       return;
     }
 
+    if (creditBalance !== null && documentIds.length > creditBalance) {
+      await showAlert(
+        `Not enough credits. Publishing ${documentIds.length} document(s) requires ${documentIds.length} credit(s), ` +
+        `but this organization has ${creditBalance}. Please contact your administrator to add more.`
+      );
+      return;
+    }
+
     const confirmMessage = documentIds.length === 1
       ? 'Are you sure you want to publish this document to the blockchain? This action cannot be undone.'
       : `Are you sure you want to publish ${documentIds.length} documents to the blockchain? This action cannot be undone.`;
@@ -649,6 +679,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     } finally {
       setIsMinting(false);
       setMintingDocId(null);
+      // Balance changed (debited on success, or resync after an error).
+      await refetchCredits();
     }
   };
 
@@ -722,13 +754,27 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           Documents ({limit ? total : (pagination ? `${total} total` : documents.length)})
         </h3>
         {!limit && (
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            {creditBalance !== null && (
+              <span
+                className="flex items-center gap-1 text-xs font-medium text-muted-foreground px-2 py-1 rounded-md bg-muted"
+                title="Each published document uses 1 credit"
+              >
+                <Coins className="h-3.5 w-3.5" />
+                {creditBalance} credit{creditBalance === 1 ? '' : 's'}
+              </span>
+            )}
             {selectedUnmintedIds.length > 0 && (
               <Button
                 onClick={handleMintSelected}
                 size="sm"
                 variant="default"
-                disabled={isMinting}
+                disabled={isMinting || (creditBalance !== null && selectedUnmintedIds.length > creditBalance)}
+                title={
+                  creditBalance !== null && selectedUnmintedIds.length > creditBalance
+                    ? `Not enough credits (need ${selectedUnmintedIds.length}, have ${creditBalance})`
+                    : undefined
+                }
               >
                 {isMinting ? (
                   <>
@@ -748,7 +794,12 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                 onClick={handleMintAll}
                 size="sm"
                 variant={selectedUnmintedIds.length > 0 ? 'outline' : 'default'}
-                disabled={isMinting}
+                disabled={isMinting || (creditBalance !== null && unmintedDocuments.length > creditBalance)}
+                title={
+                  creditBalance !== null && unmintedDocuments.length > creditBalance
+                    ? `Not enough credits (need ${unmintedDocuments.length}, have ${creditBalance})`
+                    : undefined
+                }
               >
                 {isMinting ? (
                   <>

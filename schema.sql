@@ -25,6 +25,7 @@ CREATE TABLE docq_mint_schools (
   compliance_region  TEXT,                  -- FERPA | GDPR | NZPA | MIXED
   logo_url           TEXT,                  -- S3 URL for org logo image
   custody_wallet_id  UUID REFERENCES docq_mint_wallets(id),                  -- nullable (for schools that are not custodians)
+  credit_balance     INTEGER NOT NULL DEFAULT 0 CHECK (credit_balance >= 0),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -242,3 +243,22 @@ CREATE TABLE docq_mint_document_tags (
 );
 -- Speeds up "which documents have tag X" (the filter query direction)
 CREATE INDEX idx_docq_mint_document_tags_tag ON docq_mint_document_tags(tag_id);
+
+-- Append-only ledger: every credit movement, for audit + history UI.
+CREATE TABLE docq_mint_credit_transactions (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id     UUID NOT NULL REFERENCES docq_mint_schools(id) ON DELETE CASCADE,
+
+  amount        INTEGER NOT NULL,        -- +N for grant/refund, -N for debit
+  type          TEXT NOT NULL,           -- grant | debit | refund | adjustment
+  balance_after INTEGER NOT NULL,        -- balance snapshot after this entry
+
+  document_id   UUID REFERENCES docq_mint_documents(id),
+  nft_id        UUID REFERENCES docq_mint_nfts(id),
+  note          TEXT,
+
+  created_by    UUID REFERENCES docq_mint_users(id),  -- admin actor; NULL = system
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_docq_mint_credit_tx_school ON docq_mint_credit_transactions(school_id, created_at DESC);

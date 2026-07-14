@@ -19,6 +19,22 @@ export interface DBSchool {
   compliance_region: string | null;
   logo_url: string | null;
   custody_wallet_id: string | null;
+  credit_balance: number;             // File-publishing credits; 1 credit = 1 document minted
+  created_at: Date;
+}
+
+export type CreditTransactionType = 'grant' | 'debit' | 'refund' | 'adjustment';
+
+export interface DBCreditTransaction {
+  id: string;
+  school_id: string;
+  amount: number;                     // +N for grant/refund, -N for debit
+  type: CreditTransactionType;
+  balance_after: number;
+  document_id: string | null;
+  nft_id: string | null;
+  note: string | null;
+  created_by: string | null;          // admin/actor user id; null = system
   created_at: Date;
 }
 

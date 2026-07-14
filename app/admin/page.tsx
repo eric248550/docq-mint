@@ -1,17 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Loader2, ShieldCheck, CheckCircle2 } from 'lucide-react';
-
-const ADMIN_DOMAIN = 'docq-mint.com';
+import { Loader2, ShieldCheck, CheckCircle2, Coins } from 'lucide-react';
+import { isAdminEmail } from '@/lib/auth/admin';
 
 interface CreatedSchool {
   name: string;
   owner_email: string;
   owner_status: 'active' | 'invited';
+}
+
+interface SchoolCredit {
+  id: string;
+  name: string;
+  country_code: string | null;
+  credit_balance: number;
 }
 
 export default function AdminPage() {
@@ -28,13 +34,90 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedSchool | null>(null);
 
-  const isAdmin = user?.email?.endsWith(`@${ADMIN_DOMAIN}`) ?? false;
+  // --- Credit management ---
+  const [schools, setSchools] = useState<SchoolCredit[]>([]);
+  const [selectedCreditSchoolId, setSelectedCreditSchoolId] = useState('');
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditNote, setCreditNote] = useState('');
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [creditError, setCreditError] = useState<string | null>(null);
+  const [creditMsg, setCreditMsg] = useState<string | null>(null);
+
+  const isAdmin = isAdminEmail(user?.email);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !isAdmin)) {
       router.replace('/');
     }
   }, [authLoading, isAuthenticated, isAdmin, router]);
+
+  const fetchSchools = useCallback(async () => {
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return;
+      const res = await fetch('/api/admin/credits', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSchools(data.schools ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to load schools:', err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (isAdmin) fetchSchools();
+  }, [isAdmin, fetchSchools]);
+
+  const selectedCreditSchool = schools.find((s) => s.id === selectedCreditSchoolId) || null;
+
+  const handleAssignCredits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreditError(null);
+    setCreditMsg(null);
+
+    const amount = parseInt(creditAmount, 10);
+    if (!selectedCreditSchoolId) {
+      setCreditError('Select a school');
+      return;
+    }
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setCreditError('Enter a positive whole number of credits');
+      return;
+    }
+
+    setIsAssigning(true);
+    try {
+      const token = await user?.getIdToken();
+      const res = await fetch('/api/admin/credits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          schoolId: selectedCreditSchoolId,
+          amount,
+          note: creditNote.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreditError(data.error || 'Failed to assign credits');
+        return;
+      }
+      setCreditMsg(`Assigned ${amount} credit(s). New balance: ${data.balance}.`);
+      setCreditAmount('');
+      setCreditNote('');
+      await fetchSchools();
+    } catch (err) {
+      setCreditError(err instanceof Error ? err.message : 'Unexpected error');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,6 +291,106 @@ export default function AdminPage() {
                   </>
                 ) : (
                   'Create School'
+                )}
+              </Button>
+            </div>
+          </form>
+        </div>
+
+        {/* File Credits Management */}
+        <div className="border rounded-lg p-8 mt-8">
+          <div className="flex items-center gap-2 mb-1">
+            <Coins className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">File Credits</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-6">
+            Assign publishing credits to an organization. Each document published on-chain consumes 1 credit.
+          </p>
+
+          {creditMsg && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+              <p className="text-sm text-green-700">{creditMsg}</p>
+            </div>
+          )}
+          {creditError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-sm text-red-600">{creditError}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleAssignCredits} className="space-y-5">
+            <div>
+              <label htmlFor="credit_school" className="block text-sm font-medium mb-1.5">
+                Organization *
+              </label>
+              <select
+                id="credit_school"
+                value={selectedCreditSchoolId}
+                onChange={(e) => setSelectedCreditSchoolId(e.target.value)}
+                className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
+                disabled={isAssigning}
+                required
+              >
+                <option value="">Select an organization</option>
+                {schools.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} — {s.credit_balance} credit{s.credit_balance === 1 ? '' : 's'}
+                  </option>
+                ))}
+              </select>
+              {selectedCreditSchool && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Current balance: <span className="font-medium">{selectedCreditSchool.credit_balance}</span> credit(s)
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="credit_amount" className="block text-sm font-medium mb-1.5">
+                Credits to add *
+              </label>
+              <input
+                id="credit_amount"
+                type="number"
+                min={1}
+                step={1}
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(e.target.value)}
+                className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="e.g. 100"
+                disabled={isAssigning}
+                required
+              />
+            </div>
+
+            <div>
+              <label htmlFor="credit_note" className="block text-sm font-medium mb-1.5">
+                Note (optional)
+              </label>
+              <input
+                id="credit_note"
+                type="text"
+                value={creditNote}
+                onChange={(e) => setCreditNote(e.target.value)}
+                className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="e.g. Initial allocation"
+                disabled={isAssigning}
+              />
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="submit"
+                disabled={isAssigning || !selectedCreditSchoolId || !creditAmount.trim()}
+                className="w-full"
+              >
+                {isAssigning ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  'Assign Credits'
                 )}
               </Button>
             </div>
