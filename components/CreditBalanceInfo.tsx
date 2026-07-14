@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { authenticatedRequest } from '@/lib/api/client';
 import { DBCreditTransaction } from '@/lib/db/types';
 import { Button } from '@/components/ui/button';
-import { Coins, Loader2, AlertCircle } from 'lucide-react';
+import { Coins, Loader2, AlertCircle, ChevronDown, RefreshCw } from 'lucide-react';
 
 interface CreditBalanceInfoProps {
   schoolId: string;
@@ -14,6 +14,18 @@ interface CreditBalanceInfoProps {
 interface CreditsResponse {
   balance: number;
   transactions: DBCreditTransaction[];
+}
+
+function formatDate(value: string | Date): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -30,6 +42,7 @@ export function CreditBalanceInfo({ schoolId }: CreditBalanceInfoProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
 
   const fetchCredits = useCallback(async () => {
     const token = await getAuthToken();
@@ -110,8 +123,16 @@ export function CreditBalanceInfo({ schoolId }: CreditBalanceInfoProps) {
               <Coins className="h-4 w-4" />
               Publishing Credits
             </label>
-            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-              {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              aria-label="Refresh"
+              title="Refresh"
+              className="h-8 w-8"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </Button>
           </div>
           <div className="p-4 bg-background border rounded-lg">
@@ -126,20 +147,41 @@ export function CreditBalanceInfo({ schoolId }: CreditBalanceInfoProps) {
 
         {transactions.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">Recent activity</p>
-            <ul className="divide-y rounded-lg border bg-background">
-              {transactions.slice(0, 5).map((tx) => (
-                <li key={tx.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                  <span className="text-muted-foreground">
-                    {TYPE_LABELS[tx.type] ?? tx.type}
-                    {tx.note ? <span className="ml-1 text-xs">· {tx.note}</span> : null}
-                  </span>
-                  <span className={tx.amount >= 0 ? 'text-green-600 font-medium' : 'text-foreground font-medium'}>
-                    {tx.amount >= 0 ? `+${tx.amount}` : tx.amount}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <button
+              type="button"
+              onClick={() => setActivityOpen((v) => !v)}
+              aria-expanded={activityOpen}
+              className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <span>Recent activity</span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${activityOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {activityOpen && (
+              <ul className="mt-2 divide-y rounded-lg border bg-background">
+                {transactions.slice(0, 10).map((tx) => (
+                  <li key={tx.id} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-foreground">{TYPE_LABELS[tx.type] ?? tx.type}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(tx.created_at)}
+                        {tx.note ? ` · ${tx.note}` : ''}
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        tx.amount >= 0
+                          ? 'shrink-0 text-green-600 font-medium'
+                          : 'shrink-0 text-foreground font-medium'
+                      }
+                    >
+                      {tx.amount >= 0 ? `+${tx.amount}` : tx.amount}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

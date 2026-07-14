@@ -8,6 +8,7 @@ interface SchoolCreditRow {
   id: string;
   name: string;
   country_code: string | null;
+  compliance_region: string | null;
   credit_balance: number;
 }
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     }
 
     const schools = await query<SchoolCreditRow>(
-      `SELECT id, name, country_code, credit_balance
+      `SELECT id, name, country_code, compliance_region, credit_balance
        FROM docq_mint_schools
        ORDER BY name ASC`
     );
