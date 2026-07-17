@@ -11,6 +11,8 @@ CREATE TABLE docq_mint_wallets (
   network         TEXT NOT NULL,            -- mainnet | preprod
   owner_id   UUID,                          -- (ref: docq_mint_users.id | docq_mint_schools.id)
   encrypted_seed_phrase     TEXT NOT NULL, -- encrypted with AES-256-GCM
+  cached_balance_lovelace   TEXT,           -- last known on-chain balance (lovelace), TTL-cached
+  balance_checked_at        TIMESTAMPTZ,    -- when cached_balance_lovelace was last refreshed from-chain
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

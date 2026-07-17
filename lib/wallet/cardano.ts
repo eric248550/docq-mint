@@ -304,6 +304,99 @@ export async function getWalletBalance(
   }
 }
 
+/** How long a cached balance is considered fresh before we re-hit Blockfrost. */
+export const BALANCE_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+
+export interface CachedWalletBalance {
+  lovelace: string;
+  ada: string;
+  checkedAt: string; // ISO timestamp of when this value was last fetched on-chain
+  stale: boolean;    // true if a fresh fetch failed and we fell back to a (possibly old) cached value
+}
+
+/**
+ * Get a wallet's balance, served from the DB cache when fresh (within
+ * BALANCE_CACHE_TTL_MS), otherwise refreshed from Blockfrost and written
+ * back to the cache. Falls back to the last known cached value (marked
+ * `stale: true`) if a refresh fetch fails, rather than throwing.
+ */
+export async function getCachedWalletBalance(
+  wallet: {
+    id: string;
+    address: string;
+    network: string;
+    cached_balance_lovelace: string | null;
+    balance_checked_at: Date | string | null;
+  },
+  opts: { forceRefresh?: boolean; ttlMs?: number } = {}
+): Promise<CachedWalletBalance> {
+  const ttlMs = opts.ttlMs ?? BALANCE_CACHE_TTL_MS;
+  const checkedAtMs = wallet.balance_checked_at ? new Date(wallet.balance_checked_at).getTime() : null;
+  const isFresh =
+    !opts.forceRefresh &&
+    wallet.cached_balance_lovelace != null &&
+    checkedAtMs != null &&
+    Date.now() - checkedAtMs < ttlMs;
+
+  if (isFresh) {
+    return {
+      lovelace: wallet.cached_balance_lovelace!,
+      ada: (Number(wallet.cached_balance_lovelace) / 1_000_000).toFixed(6),
+      checkedAt: new Date(checkedAtMs!).toISOString(),
+      stale: false,
+    };
+  }
+
+  try {
+    const lovelace = await getWalletBalance(wallet.address, wallet.network as 'mainnet' | 'preprod');
+    const checkedAt = new Date();
+    await query(
+      `UPDATE docq_mint_wallets SET cached_balance_lovelace = $1, balance_checked_at = $2 WHERE id = $3`,
+      [lovelace, checkedAt, wallet.id]
+    );
+    return {
+      lovelace,
+      ada: (Number(lovelace) / 1_000_000).toFixed(6),
+      checkedAt: checkedAt.toISOString(),
+      stale: false,
+    };
+  } catch (error) {
+    console.error(`Failed to refresh balance for wallet ${wallet.id}:`, error);
+    if (wallet.cached_balance_lovelace != null) {
+      return {
+        lovelace: wallet.cached_balance_lovelace,
+        ada: (Number(wallet.cached_balance_lovelace) / 1_000_000).toFixed(6),
+        checkedAt: checkedAtMs ? new Date(checkedAtMs).toISOString() : new Date(0).toISOString(),
+        stale: true,
+      };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Run async tasks with a concurrency cap, to avoid tripping Blockfrost's
+ * rate limit when refreshing many wallet balances at once.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /**
  * Get wallet balance using the wallet instance (from encrypted seed phrase)
  * @param walletId - Database wallet ID

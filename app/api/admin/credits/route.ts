@@ -10,11 +10,19 @@ interface SchoolCreditRow {
   country_code: string | null;
   compliance_region: string | null;
   credit_balance: number;
+  wallet_id: string | null;
+  wallet_address: string | null;
+  wallet_network: string | null;
+  wallet_chain: string | null;
+  owner_email: string | null;
+  owner_status: string | null;
 }
 
 /**
  * GET /api/admin/credits
- * Admin-only: list all schools with their current credit balance.
+ * Admin-only: list all schools with their current credit balance,
+ * custody wallet address (balance is fetched separately/on-demand from
+ * the blockchain, see /api/admin/schools/balances), and owner email.
  */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (authContext) => {
@@ -25,9 +33,22 @@ export async function GET(request: NextRequest) {
     }
 
     const schools = await query<SchoolCreditRow>(
-      `SELECT id, name, country_code, compliance_region, credit_balance
-       FROM docq_mint_schools
-       ORDER BY name ASC`
+      `SELECT
+         s.id, s.name, s.country_code, s.compliance_region, s.credit_balance,
+         w.id AS wallet_id, w.address AS wallet_address,
+         w.network AS wallet_network, w.chain AS wallet_chain,
+         owner.email AS owner_email, owner.status AS owner_status
+       FROM docq_mint_schools s
+       LEFT JOIN docq_mint_wallets w ON w.id = s.custody_wallet_id
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(u.email, m.invite_email) AS email, m.status
+         FROM docq_mint_school_memberships m
+         LEFT JOIN docq_mint_users u ON u.id = m.user_id
+         WHERE m.school_id = s.id AND m.role = 'owner' AND m.status != 'removed'
+         ORDER BY (m.status = 'active') DESC, m.created_at ASC
+         LIMIT 1
+       ) owner ON true
+       ORDER BY s.name ASC`
     );
 
     return NextResponse.json({ schools });

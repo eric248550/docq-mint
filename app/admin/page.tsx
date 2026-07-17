@@ -17,6 +17,11 @@ import {
   ChevronRight,
   X,
   Minus,
+  Wallet,
+  Copy,
+  Check,
+  RefreshCw,
+  Mail,
 } from 'lucide-react';
 import { isAdminEmail } from '@/lib/auth/admin';
 
@@ -26,6 +31,22 @@ interface SchoolCredit {
   country_code: string | null;
   compliance_region: string | null;
   credit_balance: number;
+  wallet_id: string | null;
+  wallet_address: string | null;
+  wallet_network: string | null;
+  wallet_chain: string | null;
+  owner_email: string | null;
+  owner_status: string | null;
+}
+
+type WalletBalanceState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; ada: string; lovelace: string; stale: boolean };
+
+function truncateAddress(address: string, chars = 6): string {
+  if (address.length <= chars * 2 + 3) return address;
+  return `${address.slice(0, chars)}…${address.slice(-chars)}`;
 }
 
 const REGIONS = ['FERPA', 'GDPR', 'NZPA', 'MIXED'];
@@ -59,6 +80,10 @@ export default function AdminPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // --- Wallet balances (fetched on-demand per page, since each lookup hits the blockchain) ---
+  const [balances, setBalances] = useState<Record<string, WalletBalanceState>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // --- Credit modal ---
   const [creditSchool, setCreditSchool] = useState<SchoolCredit | null>(null);
@@ -114,6 +139,87 @@ export default function AdminPage() {
   const currentPage = Math.min(page, totalPages);
   const startIdx = (currentPage - 1) * PAGE_SIZE;
   const pageItems = filtered.slice(startIdx, startIdx + PAGE_SIZE);
+
+  // Batch-fetch balances for a set of schools in one request. The API serves
+  // cached (TTL) balances where possible, only hitting Blockfrost for stale ones.
+  const fetchBalances = useCallback(
+    async (targetSchools: SchoolCredit[], opts: { force?: boolean } = {}) => {
+      const withWallets = targetSchools.filter((s) => s.wallet_id);
+      if (withWallets.length === 0) return;
+
+      setBalances((prev) => {
+        const next = { ...prev };
+        withWallets.forEach((s) => {
+          next[s.id] = { status: 'loading' };
+        });
+        return next;
+      });
+
+      try {
+        const token = await user?.getIdToken();
+        const res = await fetch('/api/admin/schools/balances', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            schoolIds: withWallets.map((s) => s.id),
+            force: opts.force,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.balances) {
+          setBalances((prev) => {
+            const next = { ...prev };
+            withWallets.forEach((s) => {
+              next[s.id] = { status: 'error' };
+            });
+            return next;
+          });
+          return;
+        }
+        setBalances((prev) => {
+          const next = { ...prev };
+          withWallets.forEach((s) => {
+            const balance = data.balances[s.id];
+            next[s.id] = balance
+              ? { status: 'loaded', ada: balance.ada, lovelace: balance.lovelace, stale: balance.stale }
+              : { status: 'error' };
+          });
+          return next;
+        });
+      } catch (err) {
+        console.error('Failed to fetch wallet balances:', err);
+        setBalances((prev) => {
+          const next = { ...prev };
+          withWallets.forEach((s) => {
+            next[s.id] = { status: 'error' };
+          });
+          return next;
+        });
+      }
+    },
+    [user]
+  );
+
+  const fetchBalance = useCallback(
+    (school: SchoolCredit, opts: { force?: boolean } = {}) => fetchBalances([school], opts),
+    [fetchBalances]
+  );
+
+  // Batch-fetch balances for whichever schools are visible on the current page (one request, not one per row).
+  useEffect(() => {
+    const uncached = pageItems.filter((s) => s.wallet_id && !balances[s.id]);
+    if (uncached.length > 0) {
+      fetchBalances(uncached);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageItems]);
+
+  const handleCopyAddress = (school: SchoolCredit) => {
+    if (!school.wallet_address) return;
+    navigator.clipboard.writeText(school.wallet_address);
+    setCopiedId(school.id);
+    setTimeout(() => setCopiedId((prev) => (prev === school.id ? null : prev)), 2000);
+  };
 
   const openCreate = () => {
     setFormData({ name: '', country_code: '', compliance_region: '', owner_email: '' });
@@ -326,6 +432,88 @@ export default function AdminPage() {
                       )}
                       {!s.country_code && !s.compliance_region && <span>No region set</span>}
                     </div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                      <Mail className="h-3 w-3 shrink-0" />
+                      {s.owner_email ? (
+                        <>
+                          <span className="truncate" title={s.owner_email}>
+                            {s.owner_email}
+                          </span>
+                          {s.owner_status === 'invited' && (
+                            <span className="rounded bg-muted px-1 py-0.5 shrink-0">invited</span>
+                          )}
+                        </>
+                      ) : (
+                        <span>No owner assigned</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                      <Wallet className="h-3 w-3 shrink-0" />
+                      {s.wallet_address ? (
+                        <>
+                          <span className="font-mono truncate" title={s.wallet_address}>
+                            {truncateAddress(s.wallet_address)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyAddress(s)}
+                            className="text-current/70 hover:text-current shrink-0"
+                            aria-label="Copy wallet address"
+                          >
+                            {copiedId === s.id ? (
+                              <Check className="h-3 w-3 text-green-600" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </button>
+                          {s.wallet_network && (
+                            <span className="rounded bg-muted px-1 py-0.5 shrink-0">
+                              {s.wallet_network}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span>No wallet</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="hidden md:flex flex-col items-end gap-1 shrink-0">
+                    <div
+                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium ${
+                        balances[s.id]?.status === 'loaded' && (balances[s.id] as { stale: boolean }).stale
+                          ? 'bg-orange-50 border-orange-200 text-orange-700'
+                          : 'bg-blue-50 border-blue-200 text-blue-700'
+                      }`}
+                    >
+                      {balances[s.id]?.status === 'loading' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : balances[s.id]?.status === 'loaded' ? (
+                        <>
+                          <span title={(balances[s.id] as { stale: boolean }).stale ? 'Last known value — refresh failed' : undefined}>
+                            {(balances[s.id] as { ada: string }).ada} ADA
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => fetchBalance(s, { force: true })}
+                            className="text-current/70 hover:text-current"
+                            aria-label="Refresh balance"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                          </button>
+                        </>
+                      ) : balances[s.id]?.status === 'error' ? (
+                        <button
+                          type="button"
+                          onClick={() => fetchBalance(s, { force: true })}
+                          className="flex items-center gap-1 text-red-600"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Retry
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
                   </div>
                   <div className="hidden sm:flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-sm font-medium text-amber-700">
                     <Coins className="h-3.5 w-3.5" />
@@ -495,12 +683,67 @@ export default function AdminPage() {
       >
         {creditSchool && (
           <>
-            <div className="mb-5 flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-3">
+            {creditSchool.owner_email && (
+              <div className="mb-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Mail className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{creditSchool.owner_email}</span>
+                {creditSchool.owner_status === 'invited' && (
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs shrink-0">invited</span>
+                )}
+              </div>
+            )}
+
+            <div className="mb-3 flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-3">
               <span className="text-sm text-muted-foreground">Current balance</span>
               <span className="flex items-center gap-1.5 text-lg font-semibold text-amber-600">
                 <Coins className="h-4 w-4" />
                 {creditSchool.credit_balance}
               </span>
+            </div>
+
+            <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3">
+              <div className="min-w-0">
+                <span className="text-sm text-muted-foreground block">Custody wallet</span>
+                {creditSchool.wallet_address ? (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="font-mono text-xs truncate" title={creditSchool.wallet_address}>
+                      {truncateAddress(creditSchool.wallet_address, 8)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyAddress(creditSchool)}
+                      className="text-muted-foreground hover:text-foreground shrink-0"
+                      aria-label="Copy wallet address"
+                    >
+                      {copiedId === creditSchool.id ? (
+                        <Check className="h-3 w-3 text-green-600" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">No wallet</span>
+                )}
+              </div>
+              {creditSchool.wallet_id && (
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-700 shrink-0">
+                  {balances[creditSchool.id]?.status === 'loading' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : balances[creditSchool.id]?.status === 'loaded' ? (
+                    <>{(balances[creditSchool.id] as { ada: string }).ada} ADA</>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fetchBalance(creditSchool)}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Check balance
+                    </button>
+                  )}
+                </span>
+              )}
             </div>
 
             {creditError && (
