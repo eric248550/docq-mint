@@ -409,13 +409,15 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   };
 
   const uploadQueueItems = async (items: UploadQueueItem[]) => {
-    if (items.length === 0) return { success: 0, failed: 0 };
+    if (items.length === 0) return { success: 0, failed: 0, errors: [] as { name: string; error: string }[] };
 
     const defaults = {
       student_id: formData.student_id,
       document_type_id: formData.document_type_id,
       tag_ids: uploadTagIds,
     };
+
+    const errors: { name: string; error: string }[] = [];
 
     // Re-validate sizes against each file's effective document type
     const { valid, oversized } = partitionBySize(
@@ -426,10 +428,9 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       for (const item of oversized) {
         const docType = getEffectiveUploadMeta(item, defaults).document_type_id;
         const limitMB = getFileSizeLimitMB(typeMap, docType);
-        updateQueueItem(item.id, {
-          status: 'error',
-          error: `Exceeds ${limitMB} MB limit for ${resolveDocumentTypeLabel(typeMap, docType)}`,
-        });
+        const message = `Exceeds ${limitMB} MB limit for ${resolveDocumentTypeLabel(typeMap, docType)}`;
+        updateQueueItem(item.id, { status: 'error', error: message });
+        errors.push({ name: item.relativePath, error: message });
       }
     }
 
@@ -477,13 +478,33 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           const message = error instanceof Error ? error.message : 'Upload failed';
           updateQueueItem(item.id, { status: 'error', error: message });
           failed += 1;
+          errors.push({ name: item.relativePath, error: message });
         }
       });
     } finally {
       setIsBatchUploading(false);
     }
 
-    return { success, failed };
+    return { success, failed, errors };
+  };
+
+  // Groups per-file errors by message so the summary alert stays readable
+  // even when many files fail for the same reason.
+  const summarizeFailures = (errors: { name: string; error: string }[]): string => {
+    if (errors.length === 0) return '';
+
+    if (errors.length <= 3) {
+      return errors.map(({ name, error }) => `• ${name}: ${error}`).join('\n');
+    }
+
+    const counts = new Map<string, number>();
+    for (const { error } of errors) {
+      const message = error?.trim() || 'Upload failed';
+      counts.set(message, (counts.get(message) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([message, count]) => `• ${message}${count > 1 ? ` (${count} files)` : ''}`)
+      .join('\n');
   };
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -498,7 +519,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       return;
     }
 
-    const { success, failed } = await uploadQueueItems(targets);
+    const { success, failed, errors } = await uploadQueueItems(targets);
 
     if (success > 0) {
       if (limit) {
@@ -516,20 +537,22 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
     if (success > 0) {
       await showAlert(
-        `${success} document(s) uploaded successfully.\n\n${failed} failed — you can retry the failed files below.`
+        `${success} document(s) uploaded successfully.\n\n${failed} failed:\n${summarizeFailures(errors)}\n\nYou can retry the failed files below.`
       );
       setUploadQueue((prev) => prev.filter((item) => item.status !== 'success'));
       return;
     }
 
-    await showAlert(`Failed to upload all documents. You can retry the failed files below.`);
+    await showAlert(
+      `Failed to upload ${failed} document(s):\n${summarizeFailures(errors)}\n\nYou can retry the failed files below.`
+    );
   };
 
   const handleRetryFailed = async () => {
     const failedItems = uploadQueue.filter((item) => item.status === 'error');
     if (failedItems.length === 0) return;
 
-    const { success, failed } = await uploadQueueItems(failedItems);
+    const { success, failed, errors } = await uploadQueueItems(failedItems);
 
     if (success > 0) {
       if (limit) {
@@ -547,13 +570,13 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
     if (success > 0) {
       await showAlert(
-        `${success} document(s) uploaded on retry.\n\n${failed} still failed — you can retry again.`
+        `${success} document(s) uploaded on retry.\n\n${failed} still failed:\n${summarizeFailures(errors)}`
       );
       setUploadQueue((prev) => prev.filter((item) => item.status !== 'success'));
       return;
     }
 
-    await showAlert(`Retry failed for all remaining documents.`);
+    await showAlert(`Retry failed for all ${failed} document(s):\n${summarizeFailures(errors)}`);
   };
 
   const handleDelete = async (documentId: string) => {
