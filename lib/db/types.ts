@@ -63,7 +63,7 @@ export interface DBDocument {
   id: string;
   school_id: string | null;
   student_id: string | null;
-  document_type: DocumentType;
+  document_type_id: string;            // FK -> DBDocumentType.id
   file_storage_provider: string;
   file_storage_url: string;
   file_hash: string;
@@ -74,6 +74,18 @@ export interface DBDocument {
   created_at: Date;
   is_published?: boolean;              // Computed: issued_at IS NOT NULL
   tags?: DBTag[];                      // Computed: tags attached to this document (list endpoints only)
+  document_type_label?: string;        // Computed: joined from docq_mint_document_types (list/detail endpoints only)
+}
+
+export interface DBDocumentType {
+  id: string;
+  label: string;
+  category: string | null;   // optional grouping label for UI dropdowns
+  max_size_mb: number;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+  document_count?: number;   // computed: how many documents use this type (list endpoint only)
 }
 
 export interface DBTag {
@@ -164,49 +176,6 @@ export interface DBPayment {
 // API types
 export type SchoolMembershipRole = 'owner' | 'admin' | 'viewer' | 'student' | 'parent';
 export type MembershipStatus = 'active' | 'invited' | 'removed';
-/**
- * All supported document types for student records.
- *
- * Enrollment / Identity documents:
- *   birth_certificate    — Official birth certificate
- *   national_id          — Aadhar card (India) / Social Security Number (US) for student & parents
- *   address_proof        — Utility bill, bank statement, or any government-issued address document
- *   passport_photo       — Passport-size photographs
- *
- * Transfer / admissions documents:
- *   transfer_certificate — Previous school's Leaving Certificate (LC) / Transfer Certificate (TC)
- *
- * Academic records:
- *   report_card          — Periodic report card or marksheet
- *   transcript           — Official academic transcript
- *   cumulative_record    — Final report card / cumulative academic record for the student's last year or term
- *   diploma              — Diploma or degree certificate
- *   certificate          — Generic award or completion certificate
- *
- * Health:
- *   health_fitness_card  — Student health & fitness card (medical history, vaccinations, fitness records)
- *
- * Catch-all:
- *   others               — Any document that does not fit the above categories
- */
-export type DocumentType =
-  // Enrollment / Identity
-  | 'birth_certificate'
-  | 'national_id'
-  | 'address_proof'
-  | 'passport_photo'
-  // Transfer / Admissions
-  | 'transfer_certificate'
-  // Academic Records
-  | 'report_card'
-  | 'transcript'
-  | 'cumulative_record'
-  | 'diploma'
-  | 'certificate'
-  // Health
-  | 'health_fitness_card'
-  // Catch-all
-  | 'others';
 export type IdentityContext = 'student' | 'school_admin' | 'verifier';
 export type WalletRole = 'issuer' | 'holder' | 'system';
 export type CardanoNetwork = 'mainnet' | 'preprod';

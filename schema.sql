@@ -68,6 +68,21 @@ CREATE TABLE docq_mint_school_memberships (
 
 
 -- ------------------------------------------------------------
+-- DOCUMENT TYPES TABLE  (admin-managed catalog of upload categories)
+-- ------------------------------------------------------------
+CREATE TABLE docq_mint_document_types (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- the only identifier; referenced by docq_mint_documents.document_type_id
+  label         TEXT NOT NULL,               -- display name shown in upload/filter dropdowns
+  category      TEXT,                        -- optional grouping label for UI dropdowns, e.g. "Academic Records"
+  max_size_mb   INTEGER NOT NULL DEFAULT 2 CHECK (max_size_mb > 0),  -- always capped by the app-wide MAX_FILE_UPLOAD_MB
+  is_active     BOOLEAN NOT NULL DEFAULT true,  -- inactive types are hidden from upload pickers but stay valid for existing documents
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_docq_mint_document_types_active ON docq_mint_document_types(is_active, label);
+
+-- ------------------------------------------------------------
 -- DOCUMENTS TABLE
 -- ------------------------------------------------------------ 
 CREATE TABLE docq_mint_documents (
@@ -76,11 +91,7 @@ CREATE TABLE docq_mint_documents (
   school_id         UUID REFERENCES docq_mint_schools(id),                    -- nullable (ref: docq_mint_schools.id)
   student_id        UUID REFERENCES docq_mint_users(id),                    -- nullable (ref: could be a docq_mint_users.id or null)
 
-  document_type     TEXT NOT NULL,           -- Enrollment/Identity: birth_certificate | national_id | address_proof | passport_photo
-                                             -- Transfer/Admissions: transfer_certificate
-                                             -- Academic: report_card | transcript | cumulative_record | diploma | certificate
-                                             -- Health: health_fitness_card
-                                             -- Catch-all: others
+  document_type_id  UUID NOT NULL REFERENCES docq_mint_document_types(id), -- see docq_mint_document_types for the catalog
   file_storage_provider TEXT NOT NULL,        -- s3 | r2 | gcs | ipfs
   file_storage_url  TEXT NOT NULL,           -- https://s3.amazonaws.com/docq-mint/documents/1234567890.pdf
   file_hash         TEXT NOT NULL,           -- SHA256 / Blake2b (file-level)

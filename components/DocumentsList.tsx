@@ -1,14 +1,23 @@
 'use client';
 
-import { useState, useEffect, useRef, useTransition, useCallback } from 'react';
+import { useState, useEffect, useRef, useTransition, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchoolDocuments, useSchoolMembers, useSchoolTags } from '@/hooks/useSchools';
+import { useDocumentTypes } from '@/hooks/useDocumentTypes';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { FileText, Upload, Loader2, Trash2, Download, UserPlus, CheckCircle2, Circle, Rocket, Search, ArrowUpDown, Tag as TagIcon, X, Plus, Check, FolderOpen, AlertCircle, RotateCcw, Coins } from 'lucide-react';
-import { DBDocument, DBTag } from '@/lib/db/types';
+import { DBDocument, DBDocumentType, DBTag } from '@/lib/db/types';
 import { Modal, useModal } from '@/components/ui/alert-modal';
-import { getFileSizeLimitMB, resolveContentType } from '@/lib/uploads/limits';
+import { resolveContentType } from '@/lib/uploads/limits';
+import {
+  buildDocumentTypeMap,
+  getDocumentTypeLabel as resolveDocumentTypeLabel,
+  getFileSizeLimitBytes,
+  getFileSizeLimitMB,
+  groupDocumentTypesByCategory,
+  type DocumentTypeLite,
+} from '@/lib/uploads/documentTypeUtils';
 import {
   BATCH_UPLOAD_CONCURRENCY,
   collectFilesFromDataTransfer,
@@ -21,55 +30,19 @@ import {
 } from '@/lib/uploads/batch-files';
 import { uploadFileToS3 } from '@/lib/uploads/s3-client-upload';
 
-// Module-level helper — shared by DocumentsList and DocumentRow
-function getDocumentTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    // Enrollment / Identity
-    birth_certificate:    'Birth Certificate',
-    national_id:          'National ID (Aadhar / SSN)',
-    address_proof:        'Address Proof',
-    passport_photo:       'Passport Photo',
-    // Transfer / Admissions
-    transfer_certificate: 'Transfer Certificate (LC/TC)',
-    // Academic Records
-    report_card:          'Report Card / Marksheet',
-    transcript:           'Transcript',
-    cumulative_record:    'Cumulative Record',
-    diploma:              'Diploma',
-    certificate:          'Certificate',
-    // Health
-    health_fitness_card:  'Health & Fitness Card',
-    // Catch-all
-    others:               'Others',
-  };
-  return labels[type] || type;
-}
-
-function DocumentTypeOptions() {
+function DocumentTypeOptions({ types }: { types: DocumentTypeLite[] }) {
+  const groups = groupDocumentTypesByCategory(types);
   return (
     <>
-      <optgroup label="Enrollment / Identity">
-        <option value="birth_certificate">Birth Certificate</option>
-        <option value="national_id">National ID (Aadhar / SSN)</option>
-        <option value="address_proof">Address Proof</option>
-        <option value="passport_photo">Passport Photo</option>
-      </optgroup>
-      <optgroup label="Transfer / Admissions">
-        <option value="transfer_certificate">Transfer Certificate (LC/TC)</option>
-      </optgroup>
-      <optgroup label="Academic Records">
-        <option value="report_card">Report Card / Marksheet</option>
-        <option value="transcript">Transcript</option>
-        <option value="cumulative_record">Cumulative Record</option>
-        <option value="diploma">Diploma</option>
-        <option value="certificate">Certificate</option>
-      </optgroup>
-      <optgroup label="Health">
-        <option value="health_fitness_card">Health &amp; Fitness Card</option>
-      </optgroup>
-      <optgroup label="Other">
-        <option value="others">Others</option>
-      </optgroup>
+      {groups.map((group) => (
+        <optgroup key={group.category} label={group.category}>
+          {group.types.map((type) => (
+            <option key={type.id} value={type.id}>
+              {type.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
     </>
   );
 }
@@ -87,7 +60,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const [page, setPage] = useState(!limit ? (Number(searchParams.get('page')) || 1) : 1);
   const [searchInput, setSearchInput] = useState(!limit ? (searchParams.get('search') || '') : '');
   const [search, setSearch] = useState(!limit ? (searchParams.get('search') || '') : '');
-  const [documentType, setDocumentType] = useState(!limit ? (searchParams.get('docType') || '') : '');
+  const [documentTypeId, setDocumentTypeId] = useState(!limit ? (searchParams.get('docTypeId') || '') : '');
   const [unassigned, setUnassigned] = useState(!limit ? (searchParams.get('unassigned') || '') : '');
   const [issued, setIssued] = useState(!limit ? (searchParams.get('issued') || '') : '');
   const [sortOrder, setSortOrder] = useState(!limit ? (searchParams.get('sort') || 'desc') : 'desc');
@@ -100,6 +73,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const { documents, pagination, isLoading, error, createDocument, updateDocument, deleteDocument, refetch } = useSchoolDocuments(schoolId);
   const { members, refetch: refetchMembers } = useSchoolMembers(schoolId);
   const { tags, refetch: refetchTags, createTag } = useSchoolTags(schoolId);
+  const { documentTypes, activeDocumentTypes } = useDocumentTypes();
+  const typeMap = useMemo(() => buildDocumentTypeMap(documentTypes), [documentTypes]);
   const { getAuthToken } = useAuthStore();
 
   const [showUploadForm, setShowUploadForm] = useState(false);
@@ -112,7 +87,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [formData, setFormData] = useState({
     student_id: '',
-    document_type: 'report_card',
+    document_type_id: '',
   });
   const [uploadTagIds, setUploadTagIds] = useState<string[]>([]);
   const [isBatchUploading, setIsBatchUploading] = useState(false);
@@ -143,6 +118,16 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     refetchCredits();
   }, [refetchCredits]);
 
+  // Default the upload form's document type to the first active type once loaded,
+  // and re-point it if the currently selected type gets deactivated mid-session.
+  useEffect(() => {
+    if (activeDocumentTypes.length === 0) return;
+    setFormData((f) => {
+      if (f.document_type_id && activeDocumentTypes.some((t) => t.id === f.document_type_id)) return f;
+      return { ...f, document_type_id: activeDocumentTypes[0].id };
+    });
+  }, [activeDocumentTypes]);
+
   const { modal, showAlert, showConfirm, closeModal } = useModal();
 
   // Only show students who have actually signed up (user_id is not null)
@@ -154,7 +139,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   const batchDefaults = {
     student_id: formData.student_id,
-    document_type: formData.document_type,
+    document_type_id: formData.document_type_id,
     tag_ids: uploadTagIds,
   };
 
@@ -166,18 +151,18 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
         ...item,
         customize: false,
         student_id: formData.student_id,
-        document_type: formData.document_type,
+        document_type_id: formData.document_type_id,
         tag_ids: [...uploadTagIds],
       }));
     });
-  }, [formData.student_id, formData.document_type, uploadTagIds]);
+  }, [formData.student_id, formData.document_type_id, uploadTagIds]);
 
   const beginCustomize = (item: UploadQueueItem, patch: Partial<UploadQueueItem>) => {
     const effective = getEffectiveUploadMeta(item, batchDefaults);
     updateQueueItem(item.id, {
       customize: true,
       student_id: effective.student_id,
-      document_type: effective.document_type,
+      document_type_id: effective.document_type_id,
       tag_ids: [...effective.tag_ids],
       ...patch,
     });
@@ -188,12 +173,12 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
     const { valid, oversized } = partitionBySize(
       incoming,
-      (item) => getEffectiveUploadMeta(item, batchDefaults).document_type
+      (item) => getFileSizeLimitBytes(typeMap, getEffectiveUploadMeta(item, batchDefaults).document_type_id)
     );
     if (oversized.length > 0) {
       const names = oversized.map((item) => {
-        const docType = getEffectiveUploadMeta(item, batchDefaults).document_type;
-        return `${item.relativePath} (${getFileSizeLimitMB(docType)} MB max)`;
+        const docType = getEffectiveUploadMeta(item, batchDefaults).document_type_id;
+        return `${item.relativePath} (${getFileSizeLimitMB(typeMap, docType)} MB max)`;
       }).join(', ');
       await showAlert(
         `${oversized.length} file(s) exceed the size limit for their document type and were removed:\n${names}`
@@ -341,8 +326,8 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
   useEffect(() => {
     if (limit) return;
-    refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
-  }, [page, search, documentType, unassigned, issued, selectedTagIds, sortOrder, schoolId]);
+    refetch({ page, search, documentTypeId, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
+  }, [page, search, documentTypeId, unassigned, issued, selectedTagIds, sortOrder, schoolId]);
 
   // Sync filters to URL in full view (wrapped in startTransition so the URL
   // update is non-blocking and never interrupts an active search input)
@@ -351,7 +336,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     const params = new URLSearchParams();
     if (page > 1) params.set('page', String(page));
     if (search) params.set('search', search);
-    if (documentType) params.set('docType', documentType);
+    if (documentTypeId) params.set('docTypeId', documentTypeId);
     if (unassigned) params.set('unassigned', unassigned);
     if (issued) params.set('issued', issued);
     if (selectedTagIds.length) params.set('tags', selectedTagIds.join(','));
@@ -360,7 +345,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     startTransition(() => {
       router.replace(qs ? `?${qs}` : '?', { scroll: false });
     });
-  }, [page, search, documentType, unassigned, issued, selectedTagIds, sortOrder, limit]);
+  }, [page, search, documentTypeId, unassigned, issued, selectedTagIds, sortOrder, limit]);
 
   const handleFilterChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => {
     setter(e.target.value);
@@ -412,7 +397,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
     setUploadQueue([]);
     setUploadStudentSearch('');
     setUploadTagIds([]);
-    setFormData({ student_id: '', document_type: 'report_card' });
+    setFormData({ student_id: '', document_type_id: activeDocumentTypes[0]?.id ?? '' });
     setIsBatchUploading(false);
   };
 
@@ -428,22 +413,22 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
     const defaults = {
       student_id: formData.student_id,
-      document_type: formData.document_type,
+      document_type_id: formData.document_type_id,
       tag_ids: uploadTagIds,
     };
 
     // Re-validate sizes against each file's effective document type
     const { valid, oversized } = partitionBySize(
       items,
-      (item) => getEffectiveUploadMeta(item, defaults).document_type
+      (item) => getFileSizeLimitBytes(typeMap, getEffectiveUploadMeta(item, defaults).document_type_id)
     );
     if (oversized.length > 0) {
       for (const item of oversized) {
-        const docType = getEffectiveUploadMeta(item, defaults).document_type;
-        const limitMB = getFileSizeLimitMB(docType);
+        const docType = getEffectiveUploadMeta(item, defaults).document_type_id;
+        const limitMB = getFileSizeLimitMB(typeMap, docType);
         updateQueueItem(item.id, {
           status: 'error',
-          error: `Exceeds ${limitMB} MB limit for ${getDocumentTypeLabel(docType)}`,
+          error: `Exceeds ${limitMB} MB limit for ${resolveDocumentTypeLabel(typeMap, docType)}`,
         });
       }
     }
@@ -475,7 +460,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
           await createDocument({
             student_id: studentId,
-            document_type: meta.document_type,
+            document_type_id: meta.document_type_id,
             file_storage_provider: 's3',
             file_storage_url: uploadResult.url,
             file_hash: fileHash,
@@ -519,7 +504,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       if (limit) {
         refetch({ limit });
       } else {
-        refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
+        refetch({ page, search, documentTypeId, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
       }
     }
 
@@ -550,7 +535,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       if (limit) {
         refetch({ limit });
       } else {
-        refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
+        refetch({ page, search, documentTypeId, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
       }
     }
 
@@ -670,7 +655,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
       if (limit) {
         await refetch({ limit });
       } else {
-        await refetch({ page, search, documentType, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
+        await refetch({ page, search, documentTypeId, unassigned, issued, tags: selectedTagIds.join(','), sortOrder });
       }
     } catch (error) {
       console.error('Failed to publish documents:', error);
@@ -869,33 +854,12 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
               />
             </div>
             <select
-              value={documentType}
-              onChange={handleFilterChange(setDocumentType)}
+              value={documentTypeId}
+              onChange={handleFilterChange(setDocumentTypeId)}
               className="px-3 py-2 text-sm border rounded-md bg-background"
             >
               <option value="">All Types</option>
-              <optgroup label="Enrollment / Identity">
-                <option value="birth_certificate">Birth Certificate</option>
-                <option value="national_id">National ID (Aadhar / SSN)</option>
-                <option value="address_proof">Address Proof</option>
-                <option value="passport_photo">Passport Photo</option>
-              </optgroup>
-              <optgroup label="Transfer / Admissions">
-                <option value="transfer_certificate">Transfer Certificate (LC/TC)</option>
-              </optgroup>
-              <optgroup label="Academic Records">
-                <option value="report_card">Report Card / Marksheet</option>
-                <option value="transcript">Transcript</option>
-                <option value="cumulative_record">Cumulative Record</option>
-                <option value="diploma">Diploma</option>
-                <option value="certificate">Certificate</option>
-              </optgroup>
-              <optgroup label="Health">
-                <option value="health_fitness_card">Health &amp; Fitness Card</option>
-              </optgroup>
-              <optgroup label="Other">
-                <option value="others">Others</option>
-              </optgroup>
+              <DocumentTypeOptions types={documentTypes} />
             </select>
             <select
               value={issued}
@@ -1011,11 +975,11 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
           <div>
             <label className="text-sm font-medium">Document Type (default for batch)</label>
             <select
-              value={formData.document_type}
-              onChange={(e) => setFormData({ ...formData, document_type: e.target.value })}
+              value={formData.document_type_id}
+              onChange={(e) => setFormData({ ...formData, document_type_id: e.target.value })}
               className="w-full mt-1 px-3 py-2 border rounded-md bg-background"
             >
-              <DocumentTypeOptions />
+              <DocumentTypeOptions types={activeDocumentTypes} />
             </select>
           </div>
 
@@ -1108,7 +1072,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                 Supported: PDF, DOC, DOCX, JPG, JPEG, PNG
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Max file size: <span className="font-medium">{getFileSizeLimitMB(formData.document_type)} MB</span> for {getDocumentTypeLabel(formData.document_type)}
+                Max file size: <span className="font-medium">{getFileSizeLimitMB(typeMap, formData.document_type_id)} MB</span> for {resolveDocumentTypeLabel(typeMap, formData.document_type_id)}
               </p>
             </div>
 
@@ -1184,13 +1148,13 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
                         </select>
 
                         <select
-                          value={effective.document_type}
+                          value={effective.document_type_id}
                           disabled={!canEdit}
-                          onChange={(e) => beginCustomize(item, { document_type: e.target.value })}
+                          onChange={(e) => beginCustomize(item, { document_type_id: e.target.value })}
                           className="min-w-[9rem] max-w-[14rem] flex-1 px-2 py-1.5 text-xs border rounded-md bg-background disabled:opacity-60"
                           title="Document type"
                         >
-                          <DocumentTypeOptions />
+                          <DocumentTypeOptions types={activeDocumentTypes} />
                         </select>
 
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -1282,6 +1246,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
             <DocumentRow
               key={doc.id}
               document={doc}
+              typeMap={typeMap}
               students={students}
               allTags={tags}
               onDelete={!limit ? handleDelete : undefined}
@@ -1335,6 +1300,7 @@ export function DocumentsList({ schoolId, limit }: DocumentsListProps) {
 
 interface DocumentRowProps {
   document: DBDocument;
+  typeMap: Map<string, DocumentTypeLite>;
   students: Array<{ id: string; user_id: string | null; email: string | null; role: string }>;
   allTags: DBTag[];
   onDelete?: (id: string) => void;
@@ -1348,7 +1314,7 @@ interface DocumentRowProps {
   onToggleSelect?: (documentId: string) => void;
 }
 
-function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, onSearchStudents, onSetTags, onCreateTag, isMinting, isSelected, onToggleSelect }: DocumentRowProps) {
+function DocumentRow({ document, typeMap, students, allTags, onDelete, onAssign, onMint, onSearchStudents, onSetTags, onCreateTag, isMinting, isSelected, onToggleSelect }: DocumentRowProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -1469,14 +1435,14 @@ function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, 
             checked={!!isSelected}
             onChange={() => onToggleSelect(document.id)}
             className="h-4 w-4 rounded border-gray-300 accent-primary cursor-pointer shrink-0"
-            aria-label={`Select ${document.original_filename || getDocumentTypeLabel(document.document_type)}`}
+            aria-label={`Select ${document.original_filename || resolveDocumentTypeLabel(typeMap, document.document_type_id)}`}
           />
         )}
         <FileText className="h-5 w-5 text-primary" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <p className="font-medium truncate">
-              {document.original_filename || getDocumentTypeLabel(document.document_type)}
+              {document.original_filename || resolveDocumentTypeLabel(typeMap, document.document_type_id)}
             </p>
             {document.is_published ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
@@ -1493,7 +1459,7 @@ function DocumentRow({ document, students, allTags, onDelete, onAssign, onMint, 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {document.original_filename && (
               <>
-                <span>{getDocumentTypeLabel(document.document_type)}</span>
+                <span>{resolveDocumentTypeLabel(typeMap, document.document_type_id)}</span>
                 <span>•</span>
               </>
             )}

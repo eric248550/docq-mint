@@ -24,6 +24,8 @@ import {
   Mail,
 } from 'lucide-react';
 import { isAdminEmail } from '@/lib/auth/admin';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DocumentTypesManager } from '@/components/admin/DocumentTypesManager';
 
 interface SchoolCredit {
   id: string;
@@ -335,11 +337,31 @@ export default function AdminPage() {
               <ShieldCheck className="h-7 w-7 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Organizations</h1>
+              <h1 className="text-2xl font-bold">Admin</h1>
               <p className="text-sm text-muted-foreground">
-                Manage school organizations and publishing credits
+                Manage school organizations, publishing credits, and document types
               </p>
             </div>
+          </div>
+        </div>
+
+        <Tabs defaultValue="organizations" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="organizations">Organizations</TabsTrigger>
+            <TabsTrigger value="document-types">Document Types</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="document-types">
+            <DocumentTypesManager />
+          </TabsContent>
+
+          <TabsContent value="organizations" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Organizations</h2>
+            <p className="text-sm text-muted-foreground">
+              Manage school organizations and publishing credits
+            </p>
           </div>
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4 mr-2" />
@@ -559,6 +581,8 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Create Organization modal */}

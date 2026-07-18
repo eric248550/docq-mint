@@ -1,32 +1,9 @@
-import type { DocumentType } from '@/lib/db/types';
+// Document types + their per-type size limits are admin-managed data now —
+// see lib/uploads/documentTypes.ts (server) and lib/uploads/documentTypeUtils.ts
+// (isomorphic) instead of a static list here.
 
 export const MAX_FILE_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_FILE_UPLOAD_MB = 20;
-
-/** All document types accepted by create-document APIs (must match DocumentType). */
-export const VALID_DOCUMENT_TYPES: DocumentType[] = [
-  'birth_certificate',
-  'national_id',
-  'address_proof',
-  'passport_photo',
-  'transfer_certificate',
-  'report_card',
-  'transcript',
-  'cumulative_record',
-  'diploma',
-  'certificate',
-  'health_fitness_card',
-  'others',
-];
-
-/** Per-type soft limits (MB), always capped by MAX_FILE_UPLOAD_MB. */
-const FILE_SIZE_LIMITS_MB: Record<string, number> = {
-  report_card: 3,
-  cumulative_record: MAX_FILE_UPLOAD_MB,
-  diploma: 3,
-};
-
-const DEFAULT_FILE_SIZE_MB = 2;
 
 export const ALLOWED_UPLOAD_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'] as const;
 
@@ -59,15 +36,6 @@ export function getFileExtension(fileName: string): string {
   const parts = base.split('.');
   if (parts.length < 2) return '';
   return parts.pop()!.toLowerCase();
-}
-
-export function getFileSizeLimitMB(docType: string): number {
-  const typeLimit = FILE_SIZE_LIMITS_MB[docType] ?? DEFAULT_FILE_SIZE_MB;
-  return Math.min(typeLimit, MAX_FILE_UPLOAD_MB);
-}
-
-export function getFileSizeLimitBytes(docType: string): number {
-  return getFileSizeLimitMB(docType) * 1024 * 1024;
 }
 
 export function shouldSkipUploadFile(file: File): boolean {

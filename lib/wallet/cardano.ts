@@ -439,7 +439,7 @@ export async function mintDocuments(params: {
   documents: Array<{
     id: string;
     file_hash: string;
-    document_type: string;
+    document_type_label: string;
     original_filename: string | null;
     student_id: string | null;
   }>;
@@ -520,7 +520,7 @@ export async function mintDocuments(params: {
       
       // Prepare metadata
       const metadata = {
-        name: doc.original_filename || `${doc.document_type} Document`,
+        name: doc.original_filename || `${doc.document_type_label} Document`,
         description: `Document issued by ${params.schoolInfo.name}`,
         image: 'ipfs://Qmd3bSqZ9xUXYdfbd6xnBoM8T76E2obSyDXYG9Qjh8S2rP', // TODO: Replace with DOCQ-mint NFT image
         mediaType: 'application/pdf',
@@ -531,7 +531,7 @@ export async function mintDocuments(params: {
         }],
         // Custom attributes
         attributes: {
-          documentType: doc.document_type,
+          documentType: doc.document_type_label,
           fileHash: doc.file_hash,
           issuer: params.schoolInfo.name,
           issuerId: params.schoolInfo.id,

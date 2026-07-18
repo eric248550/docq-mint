@@ -33,10 +33,11 @@ export async function GET(
     );
 
     const accessRecords = await query<DBVerificationAccess & { token: string; original_filename: string | null; document_type: string }>(
-      `SELECT va.*, vt.token, d.original_filename, d.document_type
+      `SELECT va.*, vt.token, d.original_filename, COALESCE(dt.label, 'Document') as document_type
        FROM docq_mint_verification_access va
        JOIN docq_mint_verification_tokens vt ON vt.id = va.token_id
        JOIN docq_mint_documents d ON d.id = vt.document_id
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
        WHERE va.verifier_id = $1
        ORDER BY va.created_at DESC
        LIMIT 50`,

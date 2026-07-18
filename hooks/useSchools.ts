@@ -13,7 +13,7 @@ export type Pagination = {
 export type SchoolDocFilters = {
   page?: number;
   limit?: number;
-  documentType?: string;
+  documentTypeId?: string;
   search?: string;
   studentEmail?: string;
   unassigned?: string;
@@ -33,7 +33,7 @@ export type MemberFilters = {
 export type StudentDocFilters = {
   page?: number;
   limit?: number;
-  documentType?: string;
+  documentTypeId?: string;
   search?: string;
   issued?: string;
   sortOrder?: string;
@@ -271,7 +271,7 @@ export function useSchoolDocuments(schoolId: string | null) {
 
   const createDocument = async (data: {
     student_id?: string;
-    document_type: string;
+    document_type_id: string;
     file_storage_provider: string;
     file_storage_url: string;
     file_hash: string;
@@ -302,7 +302,7 @@ export function useSchoolDocuments(schoolId: string | null) {
   };
 
   const updateDocument = async (documentId: string, data: {
-    document_type?: string;
+    document_type_id?: string;
     student_id?: string | null;
     tag_ids?: string[];
   }) => {

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useStudentDocuments } from '@/hooks/useSchools';
+import { useDocumentTypes } from '@/hooks/useDocumentTypes';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DBDocument } from '@/lib/db/types';
 import { FileText, Download, Calendar, Loader2, Share2, Copy, Check, Search, ArrowUpDown } from 'lucide-react';
@@ -10,6 +11,12 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
 import { Modal, useModal } from '@/components/ui/alert-modal';
 import { TagChip } from '@/components/DocumentsList';
+import {
+  buildDocumentTypeMap,
+  getDocumentTypeLabel as resolveDocumentTypeLabel,
+  groupDocumentTypesByCategory,
+  type DocumentTypeLite,
+} from '@/lib/uploads/documentTypeUtils';
 
 export function StudentDashboard() {
   const router = useRouter();
@@ -19,10 +26,12 @@ export function StudentDashboard() {
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1);
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '');
   const [search, setSearch] = useState(searchParams.get('search') || '');
-  const [documentType, setDocumentType] = useState(searchParams.get('docType') || '');
+  const [documentTypeId, setDocumentTypeId] = useState(searchParams.get('docTypeId') || '');
   const [sortOrder, setSortOrder] = useState(searchParams.get('sort') || 'desc');
 
   const { documents, pagination, isLoading, error, refetch } = useStudentDocuments();
+  const { documentTypes } = useDocumentTypes();
+  const typeMap = useMemo(() => buildDocumentTypeMap(documentTypes), [documentTypes]);
 
   // Debounce search input
   useEffect(() => {
@@ -35,8 +44,8 @@ export function StudentDashboard() {
 
   // Fetch on every filter change
   useEffect(() => {
-    refetch({ page, search, documentType, sortOrder });
-  }, [page, search, documentType, sortOrder]);
+    refetch({ page, search, documentTypeId, sortOrder });
+  }, [page, search, documentTypeId, sortOrder]);
 
   // Sync to URL (wrapped in startTransition so the URL update is non-blocking
   // and never interrupts an active search input)
@@ -44,13 +53,13 @@ export function StudentDashboard() {
     const params = new URLSearchParams();
     if (page > 1) params.set('page', String(page));
     if (search) params.set('search', search);
-    if (documentType) params.set('docType', documentType);
+    if (documentTypeId) params.set('docTypeId', documentTypeId);
     if (sortOrder !== 'desc') params.set('sort', sortOrder);
     const qs = params.toString();
     startTransition(() => {
       router.replace(qs ? `?${qs}` : '?', { scroll: false });
     });
-  }, [page, search, documentType, sortOrder]);
+  }, [page, search, documentTypeId, sortOrder]);
 
   if (isLoading) {
     return (
@@ -90,33 +99,20 @@ export function StudentDashboard() {
           />
         </div>
         <select
-          value={documentType}
-          onChange={e => { setDocumentType(e.target.value); setPage(1); }}
+          value={documentTypeId}
+          onChange={e => { setDocumentTypeId(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm border rounded-md bg-background"
         >
           <option value="">All Types</option>
-          <optgroup label="Enrollment / Identity">
-            <option value="birth_certificate">Birth Certificate</option>
-            <option value="national_id">National ID (Aadhar / SSN)</option>
-            <option value="address_proof">Address Proof</option>
-            <option value="passport_photo">Passport Photo</option>
-          </optgroup>
-          <optgroup label="Transfer / Admissions">
-            <option value="transfer_certificate">Transfer Certificate (LC/TC)</option>
-          </optgroup>
-          <optgroup label="Academic Records">
-            <option value="report_card">Report Card / Marksheet</option>
-            <option value="transcript">Transcript</option>
-            <option value="cumulative_record">Cumulative Record</option>
-            <option value="diploma">Diploma</option>
-            <option value="certificate">Certificate</option>
-          </optgroup>
-          <optgroup label="Health">
-            <option value="health_fitness_card">Health &amp; Fitness Card</option>
-          </optgroup>
-          <optgroup label="Other">
-            <option value="others">Others</option>
-          </optgroup>
+          {groupDocumentTypesByCategory(documentTypes).map((group) => (
+            <optgroup key={group.category} label={group.category}>
+              {group.types.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
         <Button
           variant="outline"
@@ -140,7 +136,7 @@ export function StudentDashboard() {
       ) : (
         <div className="grid gap-4">
           {documents.map((doc) => (
-            <DocumentCard key={doc.id} document={doc} />
+            <DocumentCard key={doc.id} document={doc} typeMap={typeMap} />
           ))}
         </div>
       )}
@@ -182,7 +178,7 @@ interface ShareLink {
   isExpired: boolean;
 }
 
-function DocumentCard({ document }: { document: DBDocument }) {
+function DocumentCard({ document, typeMap }: { document: DBDocument; typeMap: Map<string, DocumentTypeLite> }) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -223,29 +219,6 @@ function DocumentCard({ document }: { document: DBDocument }) {
       month: 'long',
       day: 'numeric',
     });
-  };
-
-  const getDocumentTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      // Enrollment / Identity
-      birth_certificate:   'Birth Certificate',
-      national_id:         'National ID (Aadhar / SSN)',
-      address_proof:       'Address Proof',
-      passport_photo:      'Passport Photo',
-      // Transfer / Admissions
-      transfer_certificate: 'Transfer Certificate (LC/TC)',
-      // Academic Records
-      report_card:         'Report Card / Marksheet',
-      transcript:          'Transcript',
-      cumulative_record:   'Cumulative Record',
-      diploma:             'Diploma',
-      certificate:         'Certificate',
-      // Health
-      health_fitness_card: 'Health & Fitness Card',
-      // Catch-all
-      others:              'Others',
-    };
-    return labels[type] || type;
   };
 
   const handleDownload = async () => {
@@ -375,11 +348,11 @@ function DocumentCard({ document }: { document: DBDocument }) {
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-lg font-semibold mb-1 truncate">
-              {document.original_filename || getDocumentTypeLabel(document.document_type)}
+              {document.original_filename || resolveDocumentTypeLabel(typeMap, document.document_type_id)}
             </h3>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               {document.original_filename && (
-                <span>{getDocumentTypeLabel(document.document_type)}</span>
+                <span>{resolveDocumentTypeLabel(typeMap, document.document_type_id)}</span>
               )}
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />

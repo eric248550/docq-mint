@@ -2,7 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
 import { query, queryOne, getClient } from '@/lib/db/config';
 import { DBDocument } from '@/lib/db/types';
-import { VALID_DOCUMENT_TYPES } from '@/lib/uploads/limits';
+import { getFileSizeLimitMB, isValidDocumentType } from '@/lib/uploads/documentTypes';
+
+const DOCUMENT_SELECT = `
+  d.*,
+  dt.label as document_type_label,
+  CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
+  COALESCE(
+    (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
+     FROM docq_mint_document_tags dtags
+     JOIN docq_mint_tags t ON t.id = dtags.tag_id
+     WHERE dtags.document_id = d.id),
+    '[]'
+  ) as tags
+`;
 
 /**
  * GET /api/schools/:schoolId/documents
@@ -35,7 +48,7 @@ export async function GET(
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)));
     const offset = (page - 1) * limit;
 
-    const documentType = searchParams.get('documentType');
+    const documentTypeId = searchParams.get('documentTypeId');
     const search = searchParams.get('search');
     const studentEmail = searchParams.get('studentEmail');
     const unassigned = searchParams.get('unassigned');
@@ -47,9 +60,9 @@ export async function GET(
     const qp: any[] = [schoolId];
     let idx = 2;
 
-    if (documentType) {
-      conditions.push(`d.document_type = $${idx++}`);
-      qp.push(documentType);
+    if (documentTypeId) {
+      conditions.push(`d.document_type_id = $${idx++}`);
+      qp.push(documentTypeId);
     }
     if (search) {
       conditions.push(`d.original_filename ILIKE $${idx++}`);
@@ -94,17 +107,10 @@ export async function GET(
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
     const data = await query<DBDocument & { is_published: boolean }>(
-      `SELECT d.*,
-              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
-              COALESCE(
-                (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
-                 FROM docq_mint_document_tags dt
-                 JOIN docq_mint_tags t ON t.id = dt.tag_id
-                 WHERE dt.document_id = d.id),
-                '[]'
-              ) as tags
+      `SELECT ${DOCUMENT_SELECT}
        FROM docq_mint_documents d
        LEFT JOIN docq_mint_users u ON u.id = d.student_id
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
        WHERE ${where}
        ORDER BY d.created_at ${sortOrder}
        LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -144,7 +150,7 @@ export async function POST(
     const body = await request.json();
     const {
       student_id,
-      document_type,
+      document_type_id,
       file_storage_provider,
       file_storage_url,
       file_hash,
@@ -155,7 +161,7 @@ export async function POST(
     } = body;
 
     // Validate required fields
-    if (!document_type || !file_storage_provider || !file_storage_url || !file_hash) {
+    if (!document_type_id || !file_storage_provider || !file_storage_url || !file_hash) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -163,11 +169,22 @@ export async function POST(
     }
 
     // Validate document type
-    if (!(VALID_DOCUMENT_TYPES as readonly string[]).includes(document_type)) {
+    if (!(await isValidDocumentType(document_type_id))) {
       return NextResponse.json(
         { error: 'Invalid document type' },
         { status: 400 }
       );
+    }
+
+    // Defense in depth: the client already enforces per-type size limits before upload.
+    if (typeof file_size_bytes === 'number' && file_size_bytes > 0) {
+      const limitMB = await getFileSizeLimitMB(document_type_id);
+      if (file_size_bytes > limitMB * 1024 * 1024) {
+        return NextResponse.json(
+          { error: `File exceeds the ${limitMB} MB limit for this document type` },
+          { status: 400 }
+        );
+      }
     }
 
     // If student_id provided, verify student belongs to school
@@ -215,14 +232,14 @@ export async function POST(
       await client.query('BEGIN');
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO docq_mint_documents
-         (school_id, student_id, document_type, file_storage_provider,
+         (school_id, student_id, document_type_id, file_storage_provider,
           file_storage_url, file_hash, file_mime_type, file_size_bytes, original_filename)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id`,
         [
           schoolId,
           student_id || null,
-          document_type,
+          document_type_id,
           file_storage_provider,
           file_storage_url,
           file_hash,
@@ -250,16 +267,9 @@ export async function POST(
 
     // Return the created document with its tags aggregated
     const document = await queryOne<DBDocument>(
-      `SELECT d.*,
-              CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
-              COALESCE(
-                (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
-                 FROM docq_mint_document_tags dt
-                 JOIN docq_mint_tags t ON t.id = dt.tag_id
-                 WHERE dt.document_id = d.id),
-                '[]'
-              ) as tags
+      `SELECT ${DOCUMENT_SELECT}
        FROM docq_mint_documents d
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
        WHERE d.id = $1`,
       [documentId]
     );
@@ -267,4 +277,3 @@ export async function POST(
     return NextResponse.json({ document }, { status: 201 });
   });
 }
-

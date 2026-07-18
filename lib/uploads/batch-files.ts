@@ -1,5 +1,4 @@
 import {
-  getFileSizeLimitBytes,
   isAllowedUploadExtension,
   shouldSkipUploadFile,
 } from '@/lib/uploads/limits';
@@ -15,17 +14,17 @@ export interface UploadQueueItem {
   error?: string;
   /**
    * When false, batch shared student/type/tags apply.
-   * When true, use this item's student_id / document_type / tag_ids.
+   * When true, use this item's student_id / document_type_id / tag_ids.
    */
   customize: boolean;
   student_id: string;
-  document_type: string;
+  document_type_id: string;
   tag_ids: string[];
 }
 
 export interface BatchUploadDefaults {
   student_id: string;
-  document_type: string;
+  document_type_id: string;
   tag_ids: string[];
 }
 
@@ -36,7 +35,7 @@ export function getEffectiveUploadMeta(
   if (!item.customize) return defaults;
   return {
     student_id: item.student_id,
-    document_type: item.document_type,
+    document_type_id: item.document_type_id,
     tag_ids: item.tag_ids,
   };
 }
@@ -173,19 +172,19 @@ export function toQueueItems(
     status: 'pending' as const,
     customize: false,
     student_id: defaults?.student_id ?? '',
-    document_type: defaults?.document_type ?? 'report_card',
+    document_type_id: defaults?.document_type_id ?? '',
     tag_ids: defaults?.tag_ids ?? [],
   }));
 }
 
 export function partitionBySize(
   items: UploadQueueItem[],
-  getDocType: (item: UploadQueueItem) => string
+  getLimitBytes: (item: UploadQueueItem) => number
 ): { valid: UploadQueueItem[]; oversized: UploadQueueItem[] } {
   const valid: UploadQueueItem[] = [];
   const oversized: UploadQueueItem[] = [];
   for (const item of items) {
-    const limitBytes = getFileSizeLimitBytes(getDocType(item));
+    const limitBytes = getLimitBytes(item);
     if (item.file.size > limitBytes) oversized.push(item);
     else valid.push(item);
   }

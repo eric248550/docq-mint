@@ -78,10 +78,13 @@ async function handler(
       throw new Error('School not found');
     }
 
-    // Get documents to mint
+    // Get documents to mint (joined to the catalog so the NFT metadata gets a
+    // human-readable label instead of the raw document_type_id UUID)
     const documents = await query<DBDocument>(
-      `SELECT d.* FROM docq_mint_documents d
-       WHERE d.id = ANY($1) 
+      `SELECT d.*, dt.label as document_type_label
+       FROM docq_mint_documents d
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
+       WHERE d.id = ANY($1)
        AND d.school_id = $2`,
       [documentIds, schoolId]
     );
@@ -98,7 +101,7 @@ async function handler(
       documents: documents.map(doc => ({
         id: doc.id,
         file_hash: doc.file_hash,
-        document_type: doc.document_type,
+        document_type_label: doc.document_type_label || 'Document',
         original_filename: doc.original_filename,
         student_id: doc.student_id,
       })),

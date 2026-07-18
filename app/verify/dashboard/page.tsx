@@ -343,16 +343,8 @@ export default function VerifierDashboardPage() {
     }
   };
 
-  const getDocumentTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      report_card: 'Report Card',
-      transcript: 'Transcript',
-      certificate: 'Certificate',
-      diploma: 'Diploma',
-      others: 'Document',
-    };
-    return labels[type] || type;
-  };
+  // The API already resolves document_type_id to a human-readable label server-side.
+  const getDocumentTypeLabel = (type: string) => type || 'Document';
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {

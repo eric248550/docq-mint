@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
 import { query, queryOne, getClient } from '@/lib/db/config';
 import { DBDocument, DBTag } from '@/lib/db/types';
+import { isValidDocumentType } from '@/lib/uploads/documentTypes';
 
 /**
  * GET /api/documents/:documentId
@@ -20,7 +21,10 @@ export async function GET(
     }
 
     const document = await queryOne<DBDocument>(
-      'SELECT * FROM docq_mint_documents WHERE id = $1',
+      `SELECT d.*, dt.label as document_type_label
+       FROM docq_mint_documents d
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
+       WHERE d.id = $1`,
       [documentId]
     );
 
@@ -92,7 +96,15 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { document_type, student_id, tag_ids } = body;
+    const { document_type_id, student_id, tag_ids } = body;
+
+    // If document_type_id is being changed, it must be a currently-active type
+    if (document_type_id !== undefined && !(await isValidDocumentType(document_type_id))) {
+      return NextResponse.json(
+        { error: 'Invalid document type' },
+        { status: 400 }
+      );
+    }
 
     // If student_id is being updated, verify student belongs to school
     if (student_id !== undefined && student_id !== null && document.school_id) {
@@ -137,9 +149,9 @@ export async function PATCH(
     const values: any[] = [];
     let paramCount = 1;
 
-    if (document_type !== undefined) {
-      updates.push(`document_type = $${paramCount}`);
-      values.push(document_type);
+    if (document_type_id !== undefined) {
+      updates.push(`document_type_id = $${paramCount}`);
+      values.push(document_type_id);
       paramCount++;
     }
 
@@ -184,15 +196,17 @@ export async function PATCH(
     // Return the fresh document with its tags aggregated
     const updatedDocument = await queryOne<DBDocument>(
       `SELECT d.*,
+              dt.label as document_type_label,
               CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
               COALESCE(
                 (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
-                 FROM docq_mint_document_tags dt
-                 JOIN docq_mint_tags t ON t.id = dt.tag_id
-                 WHERE dt.document_id = d.id),
+                 FROM docq_mint_document_tags dt2
+                 JOIN docq_mint_tags t ON t.id = dt2.tag_id
+                 WHERE dt2.document_id = d.id),
                 '[]'
               ) as tags
        FROM docq_mint_documents d
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
        WHERE d.id = $1`,
       [documentId]
     );

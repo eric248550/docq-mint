@@ -37,9 +37,12 @@ export async function GET(
     );
   }
 
-  // Get the document
+  // Get the document (joined to the catalog for a human-readable type label)
   const document = await queryOne<DBDocument>(
-    'SELECT * FROM docq_mint_documents WHERE id = $1',
+    `SELECT d.*, dt.label as document_type_label
+     FROM docq_mint_documents d
+     LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
+     WHERE d.id = $1`,
     [verificationToken.document_id]
   );
 
@@ -75,7 +78,7 @@ export async function GET(
     hasAccess,
     document: {
       id: document.id,
-      documentType: document.document_type,
+      documentType: document.document_type_label || 'Document',
       originalFilename: document.original_filename,
       fileHash: document.file_hash,
       fileMimeType: document.file_mime_type,

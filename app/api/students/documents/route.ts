@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)));
     const offset = (page - 1) * limit;
 
-    const documentType = searchParams.get('documentType');
+    const documentTypeId = searchParams.get('documentTypeId');
     const search = searchParams.get('search');
     const issued = searchParams.get('issued');
     const sortOrder = searchParams.get('sortOrder') === 'asc' ? 'ASC' : 'DESC';
@@ -36,9 +36,9 @@ export async function GET(request: NextRequest) {
       conditions.push('d.issued_at IS NOT NULL');
     }
 
-    if (documentType) {
-      conditions.push(`d.document_type = $${idx++}`);
-      qp.push(documentType);
+    if (documentTypeId) {
+      conditions.push(`d.document_type_id = $${idx++}`);
+      qp.push(documentTypeId);
     }
     if (search) {
       conditions.push(`d.original_filename ILIKE $${idx++}`);
@@ -56,15 +56,17 @@ export async function GET(request: NextRequest) {
 
     const data = await query<DBDocument & { is_published: boolean }>(
       `SELECT d.*,
+              dt.label as document_type_label,
               CASE WHEN d.issued_at IS NOT NULL THEN true ELSE false END as is_published,
               COALESCE(
                 (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name))
-                 FROM docq_mint_document_tags dt
-                 JOIN docq_mint_tags t ON t.id = dt.tag_id
-                 WHERE dt.document_id = d.id),
+                 FROM docq_mint_document_tags dtags
+                 JOIN docq_mint_tags t ON t.id = dtags.tag_id
+                 WHERE dtags.document_id = d.id),
                 '[]'
               ) as tags
        FROM docq_mint_documents d
+       LEFT JOIN docq_mint_document_types dt ON dt.id = d.document_type_id
        WHERE ${where}
        ORDER BY d.created_at ${sortOrder}
        LIMIT $${idx} OFFSET $${idx + 1}`,
