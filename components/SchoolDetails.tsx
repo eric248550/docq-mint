@@ -7,6 +7,7 @@ import { DBSchool } from '@/lib/db/types';
 import { Button } from '@/components/ui/button';
 import { Building2, Camera, Loader2, Save } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { SCHOOL_TYPES, getSchoolTypeLabel } from '@/lib/schools/schoolTypes';
 
 interface SchoolDetailsProps {
   schoolId: string;
@@ -27,8 +28,19 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
     name: '',
     country_code: '',
     compliance_region: '',
+    school_type: '',
     logo_url: '',
   });
+
+  const resetFormFromSchool = (s: DBSchool) => {
+    setFormData({
+      name: s.name,
+      country_code: s.country_code || '',
+      compliance_region: s.compliance_region || '',
+      school_type: s.school_type || '',
+      logo_url: s.logo_url || '',
+    });
+  };
 
   useEffect(() => {
     const fetchSchool = async () => {
@@ -44,18 +56,13 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
         if (response.data) {
           const s = response.data.school;
           setSchool(s);
-          setFormData({
-            name: s.name,
-            country_code: s.country_code || '',
-            compliance_region: s.compliance_region || '',
-            logo_url: s.logo_url || '',
-          });
+          resetFormFromSchool(s);
           if (s.logo_url) {
             fetchSignedLogoUrl(s3KeyFromUrl(s.logo_url));
           }
         }
       } catch (error) {
-        console.error('Failed to fetch school:', error);
+        console.error('Failed to fetch organization:', error);
       } finally {
         setIsLoading(false);
       }
@@ -82,6 +89,7 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
       if (response.data) {
         const s = response.data.school;
         setSchool(s);
+        resetFormFromSchool(s);
         setLogoPreview(null);
         setIsEditing(false);
         resetUpload();
@@ -92,7 +100,7 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
         }
       }
     } catch (error) {
-      console.error('Failed to update school:', error);
+      console.error('Failed to update organization:', error);
     } finally {
       setIsSaving(false);
     }
@@ -141,7 +149,7 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
   }
 
   if (!school) {
-    return <div className="text-center p-8">School not found</div>;
+    return <div className="text-center p-8">Organization not found</div>;
   }
 
   return (
@@ -153,7 +161,7 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={logoPreview || logoSignedUrl!}
-                alt="Org logo"
+                alt="Organization logo"
                 className="h-16 w-16 rounded-lg object-cover border"
               />
             ) : (
@@ -208,12 +216,7 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
                     setIsEditing(false);
                     setLogoPreview(null);
                     resetUpload();
-                    setFormData({
-                      name: school.name,
-                      country_code: school.country_code || '',
-                      compliance_region: school.compliance_region || '',
-                      logo_url: school.logo_url || '',
-                    });
+                    resetFormFromSchool(school);
                   }}
                   disabled={isSaving}
                 >
@@ -238,6 +241,25 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
       </div>
 
       <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">Organization Type</label>
+          {isEditing && editable ? (
+            <select
+              value={formData.school_type}
+              onChange={(e) => setFormData({ ...formData, school_type: e.target.value })}
+              className="w-full mt-1 px-3 py-2 border rounded-md bg-background"
+            >
+              <option value="">Select...</option>
+              {SCHOOL_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="mt-1">{getSchoolTypeLabel(school.school_type) || 'Not specified'}</p>
+          )}
+        </div>
         <div>
           <label className="text-sm font-medium text-muted-foreground">Country</label>
           {isEditing && editable ? (
@@ -274,4 +296,3 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
     </div>
   );
 }
-

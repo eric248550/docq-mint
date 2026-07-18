@@ -9,6 +9,7 @@ interface SchoolCreditRow {
   name: string;
   country_code: string | null;
   compliance_region: string | null;
+  school_type: string | null;
   credit_balance: number;
   wallet_id: string | null;
   wallet_address: string | null;
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
     const schools = await query<SchoolCreditRow>(
       `SELECT
          s.id, s.name, s.country_code, s.compliance_region, s.credit_balance,
+         s.school_type,
          w.id AS wallet_id, w.address AS wallet_address,
          w.network AS wallet_network, w.chain AS wallet_chain,
          owner.email AS owner_email, owner.status AS owner_status

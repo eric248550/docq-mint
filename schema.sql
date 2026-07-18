@@ -26,6 +26,7 @@ CREATE TABLE docq_mint_schools (
   country_code       TEXT,                  -- ISO 3166-1 alpha-2 code (e.g. US, CA, UK, etc.)
   compliance_region  TEXT,                  -- FERPA | GDPR | NZPA | MIXED
   logo_url           TEXT,                  -- S3 URL for org logo image
+  school_type        TEXT,                  -- hardcoded category: church | school | college | university (see lib/schools/schoolTypes.ts)
   custody_wallet_id  UUID REFERENCES docq_mint_wallets(id),                  -- nullable (for schools that are not custodians)
   credit_balance     INTEGER NOT NULL DEFAULT 0 CHECK (credit_balance >= 0),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()

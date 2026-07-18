@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
 import { query, queryOne } from '@/lib/db/config';
 import { DBSchool } from '@/lib/db/types';
+import { isValidSchoolType } from '@/lib/schools/schoolTypes';
 
 /**
  * GET /api/schools/:schoolId
- * Get school details
+ * Get organization details
  */
 export async function GET(
   request: NextRequest,
@@ -39,7 +40,7 @@ export async function GET(
     );
 
     if (!school) {
-      return NextResponse.json({ error: 'School not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
     return NextResponse.json({ school });
@@ -48,7 +49,7 @@ export async function GET(
 
 /**
  * PATCH /api/schools/:schoolId
- * Update school details
+ * Update organization details
  */
 export async function PATCH(
   request: NextRequest,
@@ -73,7 +74,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { name, country_code, compliance_region, logo_url } = body;
+    const { name, country_code, compliance_region, logo_url, school_type } = body;
 
     // Only owners can update the org logo
     if (logo_url !== undefined) {
@@ -86,25 +87,38 @@ export async function PATCH(
       }
     }
 
+    let nextSchoolType: string | null | undefined = undefined;
+    if (school_type !== undefined) {
+      const value =
+        typeof school_type === 'string' && school_type.trim() ? school_type.trim() : null;
+      if (value && !isValidSchoolType(value)) {
+        return NextResponse.json({ error: 'Invalid organization type' }, { status: 400 });
+      }
+      nextSchoolType = value;
+    }
+
     const school = await queryOne<DBSchool>(
       `UPDATE docq_mint_schools 
        SET name = COALESCE($1, name),
            country_code = COALESCE($2, country_code),
            compliance_region = COALESCE($3, compliance_region),
-           logo_url = CASE WHEN $4::text IS NOT NULL THEN $4::text ELSE logo_url END
-       WHERE id = $5
+           logo_url = CASE WHEN $4::text IS NOT NULL THEN $4::text ELSE logo_url END,
+           school_type = CASE WHEN $5::boolean THEN $6 ELSE school_type END
+       WHERE id = $7
        RETURNING *`,
       [
         name || null,
         country_code || null,
         compliance_region || null,
         logo_url || null,
+        nextSchoolType !== undefined,
+        nextSchoolType ?? null,
         schoolId
       ]
     );
 
     if (!school) {
-      return NextResponse.json({ error: 'School not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
     return NextResponse.json({ school });
@@ -132,7 +146,7 @@ export async function DELETE(
 
     if (!hasAccess) {
       return NextResponse.json(
-        { error: 'Only school owner can delete' },
+        { error: 'Only the organization owner can delete' },
         { status: 403 }
       );
     }

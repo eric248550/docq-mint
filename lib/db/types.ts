@@ -18,6 +18,7 @@ export interface DBSchool {
   country_code: string | null;
   compliance_region: string | null;
   logo_url: string | null;
+  school_type: string | null;         // hardcoded: church | school | college | university
   custody_wallet_id: string | null;
   credit_balance: number;             // File-publishing credits; 1 credit = 1 document minted
   created_at: Date;

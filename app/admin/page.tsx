@@ -26,12 +26,14 @@ import {
 import { isAdminEmail } from '@/lib/auth/admin';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DocumentTypesManager } from '@/components/admin/DocumentTypesManager';
+import { SCHOOL_TYPES, getSchoolTypeLabel } from '@/lib/schools/schoolTypes';
 
 interface SchoolCredit {
   id: string;
   name: string;
   country_code: string | null;
   compliance_region: string | null;
+  school_type: string | null;
   credit_balance: number;
   wallet_id: string | null;
   wallet_address: string | null;
@@ -78,6 +80,7 @@ export default function AdminPage() {
     name: '',
     country_code: '',
     compliance_region: '',
+    school_type: '',
     owner_email: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -224,7 +227,13 @@ export default function AdminPage() {
   };
 
   const openCreate = () => {
-    setFormData({ name: '', country_code: '', compliance_region: '', owner_email: '' });
+    setFormData({
+      name: '',
+      country_code: '',
+      compliance_region: '',
+      school_type: '',
+      owner_email: '',
+    });
     setCreateError(null);
     setCreateOpen(true);
   };
@@ -446,13 +455,20 @@ export default function AdminPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{s.name}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                      {getSchoolTypeLabel(s.school_type) && (
+                        <span className="rounded bg-primary/10 text-primary px-1.5 py-0.5">
+                          {getSchoolTypeLabel(s.school_type)}
+                        </span>
+                      )}
                       {s.country_code && <span>{s.country_code}</span>}
                       {s.country_code && s.compliance_region && <span>·</span>}
                       {s.compliance_region && (
                         <span className="rounded bg-muted px-1.5 py-0.5">{s.compliance_region}</span>
                       )}
-                      {!s.country_code && !s.compliance_region && <span>No region set</span>}
+                      {!s.school_type && !s.country_code && !s.compliance_region && (
+                        <span>No region set</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
                       <Mail className="h-3 w-3 shrink-0" />
@@ -631,6 +647,26 @@ export default function AdminPage() {
             <p className="text-xs text-muted-foreground mt-1">
               If this user doesn&apos;t have an account yet, they&apos;ll become owner when they sign up.
             </p>
+          </div>
+
+          <div>
+            <label htmlFor="school_type" className="block text-sm font-medium mb-1.5">
+              Organization Type
+            </label>
+            <select
+              id="school_type"
+              value={formData.school_type}
+              onChange={(e) => setFormData({ ...formData, school_type: e.target.value })}
+              className={inputClass}
+              disabled={isSubmitting}
+            >
+              <option value="">Optional</option>
+              {SCHOOL_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

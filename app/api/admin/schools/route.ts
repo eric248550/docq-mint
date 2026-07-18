@@ -5,6 +5,7 @@ import { DBSchool, DBUser } from '@/lib/db/types';
 import { createWalletForOwner } from '@/lib/wallet/cardano';
 import { sendSchoolCreatedEmail } from '@/lib/ses/send-school-created';
 import { isAdminEmail } from '@/lib/auth/admin';
+import { isValidSchoolType } from '@/lib/schools/schoolTypes';
 
 /**
  * POST /api/admin/schools
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, country_code, compliance_region, owner_email } = body;
+    const { name, country_code, compliance_region, school_type, owner_email } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: 'School name is required' }, { status: 400 });
@@ -29,14 +30,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Owner email is required' }, { status: 400 });
     }
 
+    const schoolType =
+      typeof school_type === 'string' && school_type.trim() ? school_type.trim() : null;
+    if (schoolType && !isValidSchoolType(schoolType)) {
+      return NextResponse.json({ error: 'Invalid organization type' }, { status: 400 });
+    }
+
     const normalizedOwnerEmail = owner_email.trim().toLowerCase();
 
     // Create school
     const school = await queryOne<DBSchool>(
-      `INSERT INTO docq_mint_schools (name, country_code, compliance_region)
-       VALUES ($1, $2, $3)
+      `INSERT INTO docq_mint_schools (name, country_code, compliance_region, school_type)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [name.trim(), country_code || null, compliance_region || null]
+      [name.trim(), country_code || null, compliance_region || null, schoolType]
     );
 
     if (!school) {
