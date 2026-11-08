@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Ensure the authenticated user's email matches the invite
-    const userEmail = (dbUser.email || email || '').toLowerCase();
+    const userEmail = (email || '').toLowerCase();
     if (!userEmail || userEmail !== payload.email.toLowerCase()) {
       return NextResponse.json(
         { error: 'This invite was sent to a different email address' },
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       const verifierMembership = await queryOne<DBVerifierMembership>(
         `SELECT * FROM docq_mint_verifier_memberships
          WHERE verifier_id = $1 AND invite_email = $2 AND status = 'invited'`,
-        [payload.verifierId, dbUser.email]
+        [payload.verifierId, payload.email]
       );
       if (!verifierMembership) {
         return NextResponse.json({ error: 'Invite not found' }, { status: 404 });
