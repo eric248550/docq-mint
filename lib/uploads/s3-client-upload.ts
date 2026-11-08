@@ -3,6 +3,7 @@ import {
   MAX_FILE_UPLOAD_MB,
   resolveContentType,
 } from '@/lib/uploads/limits';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export interface S3UploadResult {
   url: string;
@@ -15,7 +16,7 @@ export interface S3UploadResult {
  */
 export async function uploadFileToS3(
   file: File,
-  options?: { userId?: string; folder?: string }
+  options?: { folder?: string }
 ): Promise<S3UploadResult> {
   if (file.size > MAX_FILE_UPLOAD_BYTES) {
     throw new Error(`File is too large. Max size is ${MAX_FILE_UPLOAD_MB}MB per file.`);
@@ -23,14 +24,18 @@ export async function uploadFileToS3(
 
   const contentType = resolveContentType(file);
 
+  const authToken = await useAuthStore.getState().getAuthToken();
+  if (!authToken) {
+    throw new Error('Please sign in to upload files.');
+  }
+
   const presignedResponse = await fetch('/api/s3/presigned-url', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
     body: JSON.stringify({
       fileName: file.name,
       contentType,
       fileSize: file.size,
-      userId: options?.userId,
       folder: options?.folder,
     }),
   });

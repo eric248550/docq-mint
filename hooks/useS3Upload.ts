@@ -16,7 +16,7 @@ export interface UploadResult {
 }
 
 export interface UseS3UploadReturn {
-  uploadFile: (file: File, userId?: string, folder?: string) => Promise<UploadResult | null>;
+  uploadFile: (file: File, folder?: string) => Promise<UploadResult | null>;
   progress: UploadProgress;
   reset: () => void;
 }
@@ -38,7 +38,6 @@ export function useS3Upload(): UseS3UploadReturn {
 
   const uploadFile = async (
     file: File,
-    userId?: string,
     folder?: string
   ): Promise<UploadResult | null> => {
     try {
@@ -50,7 +49,7 @@ export function useS3Upload(): UseS3UploadReturn {
 
       setProgress((prev) => ({ ...prev, progress: 30 }));
 
-      const result: S3UploadResult = await uploadFileToS3(file, { userId, folder });
+      const result: S3UploadResult = await uploadFileToS3(file, { folder });
 
       setProgress({
         fileName: file.name,

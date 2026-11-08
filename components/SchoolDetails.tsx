@@ -134,7 +134,7 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
     const objectUrl = URL.createObjectURL(file);
     setLogoPreview(objectUrl);
 
-    const result = await uploadFile(file, user?.uid, 'logos');
+    const result = await uploadFile(file, 'logos');
     if (result) {
       setFormData(prev => ({ ...prev, logo_url: result.url }));
     } else {

@@ -1,5 +1,6 @@
 export const runtime = "nodejs";
 
+import { randomUUID } from 'crypto';
 import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, bucketName } from './config';
@@ -7,6 +8,7 @@ import { s3Client, bucketName } from './config';
 export interface PresignedUrlOptions {
   key: string;
   contentType: string;
+  contentLength: number; // signed into the URL, so S3 rejects any other size
   expiresIn?: number; // seconds, default 3600 (1 hour)
   metadata?: Record<string, string>;
 }
@@ -26,12 +28,13 @@ export interface PresignedUrlResponse {
 export async function generatePresignedUploadUrl(
   options: PresignedUrlOptions
 ): Promise<PresignedUrlResponse> {
-  const { key, contentType, expiresIn = 3600, metadata } = options;
+  const { key, contentType, contentLength, expiresIn = 3600 } = options;
 
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
     ContentType: contentType,
+    ContentLength: contentLength,
   });
 
   // Generate presigned URL without checksum parameters
@@ -75,17 +78,10 @@ export async function getDownloadPresignedUrl(
  */
 export function generateS3Key(
   fileName: string,
-  userId?: string,
+  userId: string,
   folder: string = 'uploads'
 ): string {
-  const timestamp = Date.now();
-  const randomStr = Math.random().toString(36).substring(2, 8);
   const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-  
-  if (userId) {
-    return `${folder}/${userId}/${timestamp}-${randomStr}-${sanitizedFileName}`;
-  }
-  
-  return `${folder}/${timestamp}-${randomStr}-${sanitizedFileName}`;
+  return `${folder}/${userId}/${Date.now()}-${randomUUID()}-${sanitizedFileName}`;
 }
 
