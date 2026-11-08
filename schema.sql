@@ -169,7 +169,8 @@ CREATE TABLE docq_mint_verification_access (
   -- accessed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
   payment_id        UUID REFERENCES docq_mint_payments(id),
   verifier_id       UUID REFERENCES docq_mint_verifiers(id),
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (token_id, payment_id)
 );
 
 -- ------------------------------------------------------------

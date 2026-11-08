@@ -3,6 +3,7 @@ import { extractFirebaseToken, verifyFirebaseToken } from '@/lib/auth/firebase-a
 import { query, queryOne } from '@/lib/db/config';
 import { DBUser, DBSchoolMembership, DBVerifierMembership } from '@/lib/db/types';
 import { createWalletForOwner } from '@/lib/wallet/cardano';
+import { isUuid } from '@/lib/stripe/verification-payment';
 
 export interface AuthContext {
   firebaseUid: string;
@@ -135,6 +136,19 @@ export async function getVerifierMembership(
      WHERE user_id = $1 AND verifier_id = $2 AND status = 'active'`,
     [userId, verifierId]
   );
+}
+
+/**
+ * Return the verifier ID only if this user is an active member of it.
+ * Anyone else is treated as a guest, so a client-supplied ID is never trusted.
+ */
+export async function resolveMemberVerifierId(
+  dbUser: DBUser | null,
+  verifierId: unknown
+): Promise<string | null> {
+  if (!dbUser || !isUuid(verifierId)) return null;
+  const membership = await getVerifierMembership(dbUser.id, verifierId);
+  return membership ? verifierId : null;
 }
 
 /**

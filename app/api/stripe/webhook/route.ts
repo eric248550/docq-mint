@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db/config';
 import { stripe } from '@/lib/stripe/client';
+import { isPaymentAmountValid, tokenIdsFromMetadata } from '@/lib/stripe/verification-payment';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   if (event.type === 'payment_intent.succeeded') {
     const pi = event.data.object as any;
-    const { token_ids, verifier_email, verifier_id, payer_user_id } = pi.metadata || {};
+    const { verifier_email, verifier_id, payer_user_id } = pi.metadata || {};
 
     // Upsert payment record
     const payment = await queryOne<{ id: string }>(
@@ -43,9 +44,11 @@ export async function POST(request: NextRequest) {
       [pi.id, Math.round(pi.amount / 100 * 100) / 100, pi.currency, verifier_id || null, payer_user_id || null]
     );
 
-    if (payment && token_ids) {
-      const ids = (token_ids as string).split(',').filter(Boolean);
-      for (const tokenId of ids) {
+    const tokenIds = tokenIdsFromMetadata(pi.metadata);
+    if (payment && tokenIds.length > 0 && !isPaymentAmountValid(pi)) {
+      console.error(`Payment ${pi.id} does not cover its documents, access not granted`);
+    } else if (payment) {
+      for (const tokenId of tokenIds) {
         await query(
           `INSERT INTO docq_mint_verification_access
            (token_id, verifier_email, verifier_id, payment_id)

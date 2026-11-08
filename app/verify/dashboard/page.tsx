@@ -281,7 +281,6 @@ export default function VerifierDashboardPage() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          amount: unpaidDocs.length * 200,
           tokenIds: unpaidDocs.map(d => d.tokenId),
           verifierEmail: verifierEmail.trim() || undefined,
           verifierId: selectedVerifierId || undefined,

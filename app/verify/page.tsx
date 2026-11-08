@@ -223,7 +223,6 @@ function VerifyPageContent() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          amount: 200,
           tokenIds: [documentInfo.tokenId],
           verifierEmail: verifierEmail.trim() || undefined,
           verifierId: selectedVerifierId || undefined,

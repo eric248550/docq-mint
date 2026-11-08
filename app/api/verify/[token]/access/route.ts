@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db/config';
 import { DBVerificationToken } from '@/lib/db/types';
+import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe/client';
-import { getOptionalDbUser } from '@/lib/middleware/auth';
+import { getOptionalDbUser, resolveMemberVerifierId } from '@/lib/middleware/auth';
+import { paymentCoversToken } from '@/lib/stripe/verification-payment';
 
 /**
  * POST /api/verify/:token/access
@@ -15,14 +17,21 @@ export async function POST(
   const { token } = params;
   const dbUser = await getOptionalDbUser(request);
   const body = await request.json();
-  const { paymentIntentId, verifierEmail, verifierId } = body;
+  const { paymentIntentId, verifierEmail, verifierId: requestedVerifierId } = body;
+  const verifierId = await resolveMemberVerifierId(dbUser, requestedVerifierId);
 
   if (!paymentIntentId) {
     return NextResponse.json({ error: 'paymentIntentId is required' }, { status: 400 });
   }
 
   // Verify the PaymentIntent with Stripe
-  const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+  let pi: Stripe.PaymentIntent;
+  try {
+    pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+  } catch {
+    return NextResponse.json({ error: 'Invalid payment' }, { status: 400 });
+  }
+
   if (pi.status !== 'succeeded') {
     return NextResponse.json(
       { error: 'Payment has not succeeded' },
@@ -38,6 +47,14 @@ export async function POST(
 
   if (!verificationToken) {
     return NextResponse.json({ error: 'Invalid verification token' }, { status: 404 });
+  }
+
+  if (verificationToken.expires_at && new Date(verificationToken.expires_at) < new Date()) {
+    return NextResponse.json({ error: 'Verification token has expired' }, { status: 410 });
+  }
+
+  if (!paymentCoversToken(pi, verificationToken.id)) {
+    return NextResponse.json({ error: 'Payment does not cover this document' }, { status: 402 });
   }
 
   // Upsert payment record

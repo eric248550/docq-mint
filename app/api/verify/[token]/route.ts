@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne } from '@/lib/db/config';
 import { DBVerificationToken, DBDocument } from '@/lib/db/types';
-import { stripe } from '@/lib/stripe/client';
-import { getOptionalDbUser } from '@/lib/middleware/auth';
+import { getOptionalDbUser, resolveMemberVerifierId } from '@/lib/middleware/auth';
 
 /**
  * GET /api/verify/:token
@@ -14,7 +13,6 @@ export async function GET(
 ) {
   const { token } = params;
   const { searchParams } = new URL(request.url);
-  const verifierId = searchParams.get('verifierId');
 
   // Get verification token
   const verificationToken = await queryOne<DBVerificationToken>(
@@ -51,6 +49,8 @@ export async function GET(
   }
 
   // Check if verifier already has access
+  const dbUser = await getOptionalDbUser(request);
+  const verifierId = await resolveMemberVerifierId(dbUser, searchParams.get('verifierId'));
   let hasAccess = false;
   if (verifierId) {
     const access = await queryOne<{ id: string }>(
@@ -58,18 +58,15 @@ export async function GET(
       [verificationToken.id, verifierId]
     );
     hasAccess = !!access;
-  } else {
+  } else if (dbUser) {
     // Check by logged-in user's payer_user_id on the payment
-    const dbUser = await getOptionalDbUser(request);
-    if (dbUser) {
-      const access = await queryOne<{ id: string }>(
-        `SELECT va.id FROM docq_mint_verification_access va
-         JOIN docq_mint_payments p ON p.id = va.payment_id
-         WHERE va.token_id = $1 AND p.payer_user_id = $2`,
-        [verificationToken.id, dbUser.id]
-      );
-      hasAccess = !!access;
-    }
+    const access = await queryOne<{ id: string }>(
+      `SELECT va.id FROM docq_mint_verification_access va
+       JOIN docq_mint_payments p ON p.id = va.payment_id
+       WHERE va.token_id = $1 AND p.payer_user_id = $2`,
+      [verificationToken.id, dbUser.id]
+    );
+    hasAccess = !!access;
   }
 
   // Return document metadata (without the actual file URL for now)
@@ -87,55 +84,5 @@ export async function GET(
       createdAt: document.created_at,
     },
   });
-}
-
-/**
- * POST /api/verify/:token
- * Initiate Stripe PaymentIntent for document access
- */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { token: string } }
-) {
-  const { token } = params;
-  const body = await request.json();
-  const { verifierEmail, verifierId } = body;
-
-  // Get verification token
-  const verificationToken = await queryOne<DBVerificationToken>(
-    'SELECT * FROM docq_mint_verification_tokens WHERE token = $1',
-    [token]
-  );
-
-  if (!verificationToken) {
-    return NextResponse.json(
-      { error: 'Invalid verification token' },
-      { status: 404 }
-    );
-  }
-
-  // Check if token is expired
-  if (verificationToken.expires_at && new Date(verificationToken.expires_at) < new Date()) {
-    return NextResponse.json(
-      { error: 'Verification token has expired' },
-      { status: 410 }
-    );
-  }
-
-  // Create Stripe PaymentIntent
-  const metadata: Record<string, string> = {
-    token_ids: verificationToken.id,
-  };
-  if (verifierEmail) metadata.verifier_email = verifierEmail;
-  if (verifierId) metadata.verifier_id = verifierId;
-
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: 200, // $2.00 in cents
-    currency: 'usd',
-    metadata,
-    automatic_payment_methods: { enabled: true },
-  });
-
-  return NextResponse.json({ clientSecret: paymentIntent.client_secret });
 }
 
