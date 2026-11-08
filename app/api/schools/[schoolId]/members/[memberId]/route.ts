@@ -1,11 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
+import { withAuth, getSchoolMembership } from '@/lib/middleware/auth';
 import { query, queryOne } from '@/lib/db/config';
 import { DBSchoolMembership } from '@/lib/db/types';
+import { getMemberRemovalError, getMemberUpdateError } from '@/lib/members/permissions';
+
+const VALID_ROLES = ['owner', 'admin', 'viewer', 'student', 'parent'];
+
+async function countActiveOwners(schoolId: string): Promise<number> {
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) as count FROM docq_mint_school_memberships
+     WHERE school_id = $1 AND role = 'owner' AND status = 'active'`,
+    [schoolId]
+  );
+  return parseInt(row?.count || '0', 10);
+}
+
+async function getMember(memberId: string, schoolId: string) {
+  return await queryOne<DBSchoolMembership>(
+    'SELECT * FROM docq_mint_school_memberships WHERE id = $1 AND school_id = $2',
+    [memberId, schoolId]
+  );
+}
 
 /**
  * PATCH /api/schools/:schoolId/members/:memberId
- * Update member role or status
+ * Update member role or remove them
  */
 export async function PATCH(
   request: NextRequest,
@@ -19,30 +38,32 @@ export async function PATCH(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check access - only owner/admin can update
-    const hasAccess = await checkSchoolAccess(dbUser.id, schoolId, ['owner', 'admin']);
-
-    if (!hasAccess) {
+    const actor = await getSchoolMembership(dbUser.id, schoolId);
+    if (!actor || !['owner', 'admin'].includes(actor.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
     const body = await request.json();
     const { role, status } = body;
 
-    // Validate role if provided
-    if (role) {
-      const validRoles = ['owner', 'admin', 'viewer', 'student', 'parent'];
-      if (!validRoles.includes(role)) {
-        return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
-      }
+    if (role && !VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     }
 
-    // Validate status if provided
-    if (status) {
-      const validStatuses = ['active', 'invited', 'removed'];
-      if (!validStatuses.includes(status)) {
-        return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
-      }
+    const target = await getMember(memberId, schoolId);
+    if (!target) {
+      return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+    }
+
+    const ruleError = getMemberUpdateError({
+      actor,
+      target,
+      nextRole: role,
+      nextStatus: status,
+      activeOwnerCount: await countActiveOwners(schoolId),
+    });
+    if (ruleError) {
+      return NextResponse.json({ error: ruleError.error }, { status: ruleError.status });
     }
 
     const membership = await queryOne<DBSchoolMembership>(
@@ -78,32 +99,23 @@ export async function DELETE(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check access - only owner/admin can remove
-    const hasAccess = await checkSchoolAccess(dbUser.id, schoolId, ['owner', 'admin']);
-
-    if (!hasAccess) {
+    const actor = await getSchoolMembership(dbUser.id, schoolId);
+    if (!actor || !['owner', 'admin'].includes(actor.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Check if trying to remove the last owner
-    const membership = await queryOne<DBSchoolMembership>(
-      'SELECT * FROM docq_mint_school_memberships WHERE id = $1 AND school_id = $2',
-      [memberId, schoolId]
-    );
+    const target = await getMember(memberId, schoolId);
+    if (!target) {
+      return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+    }
 
-    if (membership?.role === 'owner') {
-      const ownerCount = await queryOne<{ count: string }>(
-        `SELECT COUNT(*) as count FROM docq_mint_school_memberships 
-         WHERE school_id = $1 AND role = 'owner' AND status = 'active'`,
-        [schoolId]
-      );
-
-      if (ownerCount && parseInt(ownerCount.count) <= 1) {
-        return NextResponse.json(
-          { error: 'Cannot remove the last owner' },
-          { status: 400 }
-        );
-      }
+    const ruleError = getMemberRemovalError({
+      actor,
+      target,
+      activeOwnerCount: await countActiveOwners(schoolId),
+    });
+    if (ruleError) {
+      return NextResponse.json({ error: ruleError.error }, { status: ruleError.status });
     }
 
     await query(
@@ -114,4 +126,3 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   });
 }
-

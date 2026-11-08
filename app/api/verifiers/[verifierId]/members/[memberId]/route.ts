@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, checkVerifierAccess } from '@/lib/middleware/auth';
+import { withAuth, getVerifierMembership } from '@/lib/middleware/auth';
 import { queryOne } from '@/lib/db/config';
 import { DBVerifierMembership } from '@/lib/db/types';
+import { getMemberRemovalError, getMemberUpdateError } from '@/lib/members/permissions';
+
+const VALID_ROLES = ['owner', 'admin', 'viewer'];
+
+async function countActiveOwners(verifierId: string): Promise<number> {
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) as count FROM docq_mint_verifier_memberships
+     WHERE verifier_id = $1 AND role = 'owner' AND status = 'active'`,
+    [verifierId]
+  );
+  return parseInt(row?.count || '0', 10);
+}
+
+async function getMember(memberId: string, verifierId: string) {
+  return await queryOne<DBVerifierMembership>(
+    'SELECT * FROM docq_mint_verifier_memberships WHERE id = $1 AND verifier_id = $2',
+    [memberId, verifierId]
+  );
+}
 
 /**
  * PATCH /api/verifiers/:verifierId/members/:memberId
@@ -15,11 +34,31 @@ export async function PATCH(
     const { verifierId, memberId } = params;
     if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-    const hasAccess = await checkVerifierAccess(dbUser.id, verifierId, ['owner', 'admin']);
-    if (!hasAccess) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    const actor = await getVerifierMembership(dbUser.id, verifierId);
+    if (!actor || !['owner', 'admin'].includes(actor.role)) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
 
     const body = await request.json();
     const { role, status } = body;
+
+    if (role && !VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+
+    const target = await getMember(memberId, verifierId);
+    if (!target) return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+
+    const ruleError = getMemberUpdateError({
+      actor,
+      target,
+      nextRole: role,
+      nextStatus: status,
+      activeOwnerCount: await countActiveOwners(verifierId),
+    });
+    if (ruleError) {
+      return NextResponse.json({ error: ruleError.error }, { status: ruleError.status });
+    }
 
     const membership = await queryOne<DBVerifierMembership>(
       `UPDATE docq_mint_verifier_memberships
@@ -47,30 +86,26 @@ export async function DELETE(
     const { verifierId, memberId } = params;
     if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-    const hasAccess = await checkVerifierAccess(dbUser.id, verifierId, ['owner', 'admin']);
-    if (!hasAccess) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    const actor = await getVerifierMembership(dbUser.id, verifierId);
+    if (!actor || !['owner', 'admin'].includes(actor.role)) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
 
-    // Prevent removing the last owner
-    const membership = await queryOne<DBVerifierMembership>(
-      'SELECT * FROM docq_mint_verifier_memberships WHERE id = $1 AND verifier_id = $2',
-      [memberId, verifierId]
-    );
-    if (!membership) return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+    const target = await getMember(memberId, verifierId);
+    if (!target) return NextResponse.json({ error: 'Member not found' }, { status: 404 });
 
-    if (membership.role === 'owner') {
-      const ownerCount = await queryOne<{ count: string }>(
-        `SELECT COUNT(*) as count FROM docq_mint_verifier_memberships
-         WHERE verifier_id = $1 AND role = 'owner' AND status = 'active'`,
-        [verifierId]
-      );
-      if (parseInt(ownerCount?.count || '0', 10) <= 1) {
-        return NextResponse.json({ error: 'Cannot remove the last owner' }, { status: 400 });
-      }
+    const ruleError = getMemberRemovalError({
+      actor,
+      target,
+      activeOwnerCount: await countActiveOwners(verifierId),
+    });
+    if (ruleError) {
+      return NextResponse.json({ error: ruleError.error }, { status: ruleError.status });
     }
 
     await queryOne(
-      'DELETE FROM docq_mint_verifier_memberships WHERE id = $1',
-      [memberId]
+      'DELETE FROM docq_mint_verifier_memberships WHERE id = $1 AND verifier_id = $2',
+      [memberId, verifierId]
     );
 
     return NextResponse.json({ success: true });

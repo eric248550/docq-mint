@@ -110,6 +110,34 @@ export async function getOptionalDbUser(request: NextRequest): Promise<DBUser | 
 }
 
 /**
+ * Get the user's active membership in a school
+ */
+export async function getSchoolMembership(
+  userId: string,
+  schoolId: string
+): Promise<DBSchoolMembership | null> {
+  return await queryOne<DBSchoolMembership>(
+    `SELECT * FROM docq_mint_school_memberships
+     WHERE user_id = $1 AND school_id = $2 AND status = 'active'`,
+    [userId, schoolId]
+  );
+}
+
+/**
+ * Get the user's active membership in a verifier organization
+ */
+export async function getVerifierMembership(
+  userId: string,
+  verifierId: string
+): Promise<DBVerifierMembership | null> {
+  return await queryOne<DBVerifierMembership>(
+    `SELECT * FROM docq_mint_verifier_memberships
+     WHERE user_id = $1 AND verifier_id = $2 AND status = 'active'`,
+    [userId, verifierId]
+  );
+}
+
+/**
  * Check if user has school membership with required role
  */
 export async function checkSchoolAccess(
