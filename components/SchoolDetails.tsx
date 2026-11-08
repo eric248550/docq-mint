@@ -113,7 +113,11 @@ export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps
 
   const fetchSignedLogoUrl = async (key: string) => {
     try {
-      const res = await fetch(`/api/s3/presigned-get?key=${encodeURIComponent(key)}`);
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(`/api/s3/presigned-get?key=${encodeURIComponent(key)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const { url } = await res.json();
         setLogoSignedUrl(url);
