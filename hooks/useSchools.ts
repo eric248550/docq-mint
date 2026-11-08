@@ -75,30 +75,6 @@ export function useSchools() {
     }
   };
 
-  const createSchool = async (data: {
-    name: string;
-    country_code?: string;
-    compliance_region?: string;
-  }) => {
-    const token = await getAuthToken();
-    if (!token) throw new Error('Not authenticated');
-
-    const response = await authenticatedRequest<{ school: DBSchool }>(
-      '/api/schools',
-      token,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    );
-
-    if (response.error) throw new Error(response.error);
-    if (response.data) {
-      setSchools([...schools, response.data.school]);
-      return response.data.school;
-    }
-  };
-
   const updateSchool = async (schoolId: string, data: Partial<DBSchool>) => {
     const token = await getAuthToken();
     if (!token) throw new Error('Not authenticated');
@@ -142,7 +118,6 @@ export function useSchools() {
     isLoading,
     error,
     refetch: fetchSchools,
-    createSchool,
     updateSchool,
     deleteSchool,
   };

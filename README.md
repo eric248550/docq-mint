@@ -152,7 +152,6 @@ npm test
 
 ### Schools
 - `GET /api/schools` - List schools
-- `POST /api/schools` - Create school
 - `GET /api/schools/:id` - Get school
 - `PATCH /api/schools/:id` - Update school
 - `DELETE /api/schools/:id` - Delete school

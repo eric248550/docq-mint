@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, getUserMemberships } from '@/lib/middleware/auth';
-import { query, queryOne } from '@/lib/db/config';
+import { withAuth } from '@/lib/middleware/auth';
+import { query } from '@/lib/db/config';
 import { DBSchool } from '@/lib/db/types';
-import { createWalletForOwner } from '@/lib/wallet/cardano';
 
 /**
  * GET /api/schools
@@ -29,73 +28,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ schools });
   });
 }
-
-/**
- * POST /api/schools
- * Create a new school (creates user as owner)
- */
-export async function POST(request: NextRequest) {
-  return withAuth(request, async (authContext) => {
-    const { dbUser } = authContext;
-
-    if (!dbUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const body = await request.json();
-    const { name, country_code, compliance_region } = body;
-
-    if (!name || !name.trim()) {
-      return NextResponse.json(
-        { error: 'School name is required' },
-        { status: 400 }
-      );
-    }
-
-    // Create school
-    const school = await queryOne<DBSchool>(
-      `INSERT INTO docq_mint_schools (name, country_code, compliance_region)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [name.trim(), country_code || null, compliance_region || null]
-    );
-
-    if (!school) {
-      return NextResponse.json(
-        { error: 'Failed to create school' },
-        { status: 500 }
-      );
-    }
-
-    // Create wallet for school (issuer role)
-    const network = process.env.CARDANO_NETWORK === 'mainnet' ? 'mainnet' : 'preprod';
-    const wallet = await createWalletForOwner(school.id, 'issuer', network as 'mainnet' | 'preprod');
-    
-    if (!wallet) {
-      console.error('Failed to create wallet for school, but continuing with school creation');
-    } else {
-      // Update school with custody wallet ID
-      await query(
-        `UPDATE docq_mint_schools SET custody_wallet_id = $1 WHERE id = $2`,
-        [wallet.id, school.id]
-      );
-    }
-
-    // Add user as owner
-    await query(
-      `INSERT INTO docq_mint_school_memberships (school_id, user_id, role, status)
-       VALUES ($1, $2, 'owner', 'active')`,
-      [school.id, dbUser.id]
-    );
-
-    return NextResponse.json({ 
-      school: { ...school, custody_wallet_id: wallet?.id },
-      wallet: wallet ? {
-        id: wallet.id,
-        address: wallet.address,
-        stake_address: wallet.stake_address,
-      } : null
-    }, { status: 201 });
-  });
-}
-
