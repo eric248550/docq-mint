@@ -3,6 +3,8 @@ import { withAuth, checkSchoolAccess } from '@/lib/middleware/auth';
 import { query, queryOne, getClient } from '@/lib/db/config';
 import { DBDocument } from '@/lib/db/types';
 import { getFileSizeLimitMB, isValidDocumentType } from '@/lib/uploads/documentTypes';
+import { bucketName } from '@/lib/s3/config';
+import { isOwnUploadUrl } from '@/lib/s3/ownership';
 
 const DOCUMENT_SELECT = `
   d.*,
@@ -166,6 +168,10 @@ export async function POST(
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+
+    if (file_storage_provider !== 's3' || !isOwnUploadUrl(file_storage_url, bucketName, dbUser.id)) {
+      return NextResponse.json({ error: 'Invalid file location' }, { status: 400 });
     }
 
     // Validate document type
