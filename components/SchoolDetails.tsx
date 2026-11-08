@@ -15,7 +15,7 @@ interface SchoolDetailsProps {
 }
 
 export function SchoolDetails({ schoolId, editable = false }: SchoolDetailsProps) {
-  const { getAuthToken, user } = useAuthStore();
+  const { getAuthToken } = useAuthStore();
   const { uploadFile, progress: uploadProgress, reset: resetUpload } = useS3Upload();
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [school, setSchool] = useState<DBSchool | null>(null);
