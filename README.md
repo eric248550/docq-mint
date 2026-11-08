@@ -168,9 +168,6 @@ npm test
 - `DELETE /api/documents/:id` - Delete document
 - `GET /api/students/documents` - Student's documents
 
-### Wallets
-- `GET /api/wallets/:ownerId` - Get wallet information
-
 ## 🚫 Out of Scope
 
 The following features are planned for future releases:
