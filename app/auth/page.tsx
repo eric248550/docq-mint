@@ -4,6 +4,7 @@ import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { AuthExample } from '@/components/AuthExample';
+import { safeRedirect } from '@/lib/auth/safe-redirect';
 import { Loader2 } from 'lucide-react';
 
 function AuthContent() {
@@ -17,7 +18,7 @@ function AuthContent() {
       if (!user.emailVerified) {
         router.push('/auth/verify-email');
       } else {
-        router.push(redirect || '/identity');
+        router.push(safeRedirect(redirect));
       }
     }
   }, [user, isLoading, router, redirect]);
