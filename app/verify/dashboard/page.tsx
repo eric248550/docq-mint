@@ -7,6 +7,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useAuthStore } from '@/store/useAuthStore';
 import { saveAccessGrant, verificationHeaders } from '@/lib/verify/grant-storage';
+import { Header } from '@/components/Header';
 import {
   FileText,
   Download,
@@ -371,7 +372,9 @@ export default function VerifierDashboardPage() {
   const totalCost = unpaidDocs.length * 2;
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className="min-h-screen bg-background">
+      {user && <Header />}
+      <div className="p-8">
       <Modal
         isOpen={modal.isOpen}
         message={modal.message}
@@ -678,6 +681,7 @@ export default function VerifierDashboardPage() {
             </p>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

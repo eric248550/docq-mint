@@ -8,6 +8,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useAuthStore } from '@/store/useAuthStore';
 import { saveAccessGrant, verificationHeaders } from '@/lib/verify/grant-storage';
+import { Header } from '@/components/Header';
 import {
   FileText,
   Download,
@@ -303,7 +304,9 @@ function VerifyPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className="min-h-screen bg-background">
+      {user && <Header />}
+      <div className="p-8">
       <Modal
         isOpen={modal.isOpen}
         message={modal.message}
@@ -605,6 +608,7 @@ function VerifyPageContent() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
