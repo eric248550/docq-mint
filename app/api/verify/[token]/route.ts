@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne } from '@/lib/db/config';
 import { DBVerificationToken, DBDocument } from '@/lib/db/types';
-import { getOptionalDbUser, resolveMemberVerifierId } from '@/lib/middleware/auth';
+import { hasVerificationAccess } from '@/lib/verify/access';
 
 /**
  * GET /api/verify/:token
@@ -12,7 +12,6 @@ export async function GET(
   { params }: { params: { token: string } }
 ) {
   const { token } = params;
-  const { searchParams } = new URL(request.url);
 
   // Get verification token
   const verificationToken = await queryOne<DBVerificationToken>(
@@ -48,26 +47,7 @@ export async function GET(
     return NextResponse.json({ error: 'Document not found' }, { status: 404 });
   }
 
-  // Check if verifier already has access
-  const dbUser = await getOptionalDbUser(request);
-  const verifierId = await resolveMemberVerifierId(dbUser, searchParams.get('verifierId'));
-  let hasAccess = false;
-  if (verifierId) {
-    const access = await queryOne<{ id: string }>(
-      `SELECT id FROM docq_mint_verification_access WHERE token_id = $1 AND verifier_id = $2`,
-      [verificationToken.id, verifierId]
-    );
-    hasAccess = !!access;
-  } else if (dbUser) {
-    // Check by logged-in user's payer_user_id on the payment
-    const access = await queryOne<{ id: string }>(
-      `SELECT va.id FROM docq_mint_verification_access va
-       JOIN docq_mint_payments p ON p.id = va.payment_id
-       WHERE va.token_id = $1 AND p.payer_user_id = $2`,
-      [verificationToken.id, dbUser.id]
-    );
-    hasAccess = !!access;
-  }
+  const hasAccess = await hasVerificationAccess(request, verificationToken.id);
 
   // Return document metadata (without the actual file URL for now)
   return NextResponse.json({

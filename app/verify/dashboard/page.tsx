@@ -6,6 +6,7 @@ import { Modal, useModal } from '@/components/ui/alert-modal';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useAuthStore } from '@/store/useAuthStore';
+import { saveAccessGrant, verificationHeaders } from '@/lib/verify/grant-storage';
 import {
   FileText,
   Download,
@@ -86,8 +87,9 @@ function DashboardCheckoutForm({
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
       // Confirm access for all tokens
+      let allConfirmed = true;
       for (const doc of documents) {
-        await fetch(`/api/verify/${doc.token}/access`, {
+        const res = await fetch(`/api/verify/${doc.token}/access`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -96,8 +98,18 @@ function DashboardCheckoutForm({
             verifierId: verifierId || undefined,
           }),
         });
+        if (res.ok) {
+          const { grant } = await res.json();
+          saveAccessGrant(doc.token, grant);
+        } else {
+          allConfirmed = false;
+        }
       }
-      onSuccess();
+      if (allConfirmed) {
+        onSuccess();
+      } else {
+        setError('Payment recorded but access confirmation failed. Please contact support.');
+      }
     }
 
     setIsProcessing(false);
@@ -215,10 +227,9 @@ export default function VerifierDashboardPage() {
 
         try {
           const authToken = await getAuthToken();
-          const fetchHeaders: Record<string, string> = {};
-          if (authToken) fetchHeaders['Authorization'] = `Bearer ${authToken}`;
-          const qs = selectedVerifierId ? `?verifierId=${selectedVerifierId}` : '';
-          const response = await fetch(`/api/verify/${token}${qs}`, { headers: fetchHeaders });
+          const response = await fetch(`/api/verify/${token}`, {
+            headers: verificationHeaders(token, authToken),
+          });
           if (!response.ok) {
             const err = await response.json();
             errors.push(`Failed: ${line.substring(0, 30)}... - ${err.error}`);
@@ -304,7 +315,9 @@ export default function VerifierDashboardPage() {
     if (!hasPaid) return;
     setDownloadingDocs(prev => ({ ...prev, [token]: true }));
     try {
-      const response = await fetch(`/api/verify/${token}/download`);
+      const response = await fetch(`/api/verify/${token}/download`, {
+        headers: verificationHeaders(token, await getAuthToken()),
+      });
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to get download URL');
@@ -327,6 +340,7 @@ export default function VerifierDashboardPage() {
       formData.append('file', file);
       const response = await fetch(`/api/verify/${token}/compare`, {
         method: 'POST',
+        headers: verificationHeaders(token, await getAuthToken()),
         body: formData,
       });
       if (!response.ok) {

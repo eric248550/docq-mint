@@ -5,6 +5,7 @@ import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe/client';
 import { getOptionalDbUser, resolveMemberVerifierId } from '@/lib/middleware/auth';
 import { paymentCoversToken } from '@/lib/stripe/verification-payment';
+import { createAccessGrant } from '@/lib/verify/access-grant';
 
 /**
  * POST /api/verify/:token/access
@@ -87,5 +88,9 @@ export async function POST(
     [verificationToken.id, payment.id]
   ))?.id;
 
-  return NextResponse.json({ success: true, accessId });
+  return NextResponse.json({
+    success: true,
+    accessId,
+    grant: createAccessGrant(verificationToken.id, payment.id),
+  });
 }

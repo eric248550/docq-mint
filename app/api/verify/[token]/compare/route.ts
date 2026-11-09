@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne } from '@/lib/db/config';
-import { DBVerificationToken, DBDocument, DBVerificationAccess } from '@/lib/db/types';
+import { DBVerificationToken, DBDocument } from '@/lib/db/types';
+import { MAX_FILE_UPLOAD_BYTES, MAX_FILE_UPLOAD_MB } from '@/lib/uploads/limits';
+import { hasVerificationAccess } from '@/lib/verify/access';
 import { createHash } from 'crypto';
+
+// Room for the multipart boundary and field headers around the file.
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+const FILE_TOO_LARGE = `File is too large. Max size is ${MAX_FILE_UPLOAD_MB}MB.`;
 
 /**
  * POST /api/verify/:token/compare
@@ -34,16 +40,7 @@ export async function POST(
     );
   }
 
-  // Check if there's a paid access record for this token
-  const paidAccess = await queryOne<DBVerificationAccess>(
-    `SELECT va.* FROM docq_mint_verification_access va
-     JOIN docq_mint_payments p ON p.id = va.payment_id
-     WHERE va.token_id = $1 AND p.status = 'succeeded'
-     ORDER BY va.created_at DESC LIMIT 1`,
-    [verificationToken.id]
-  );
-
-  if (!paidAccess) {
+  if (!(await hasVerificationAccess(request, verificationToken.id))) {
     return NextResponse.json(
       { error: 'Payment required to compare documents' },
       { status: 402 }
@@ -60,12 +57,22 @@ export async function POST(
     return NextResponse.json({ error: 'Document not found' }, { status: 404 });
   }
 
+  // Reject oversized bodies before parsing them into memory
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  if (contentLength > MAX_FILE_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES) {
+    return NextResponse.json({ error: FILE_TOO_LARGE }, { status: 413 });
+  }
+
   // Get the uploaded file from form data
   const formData = await request.formData();
   const file = formData.get('file') as File;
 
   if (!file) {
     return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+  }
+
+  if (file.size > MAX_FILE_UPLOAD_BYTES) {
+    return NextResponse.json({ error: FILE_TOO_LARGE }, { status: 413 });
   }
 
   // Calculate hash of uploaded file

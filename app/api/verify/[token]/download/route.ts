@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne } from '@/lib/db/config';
-import { DBVerificationToken, DBDocument, DBVerificationAccess } from '@/lib/db/types';
+import { DBVerificationToken, DBDocument } from '@/lib/db/types';
 import { getDownloadPresignedUrl } from '@/lib/s3/presigned';
+import { hasVerificationAccess } from '@/lib/verify/access';
 
 /**
  * GET /api/verify/:token/download
@@ -34,16 +35,7 @@ export async function GET(
     );
   }
 
-  // Check if there's a paid access record for this token
-  const paidAccess = await queryOne<DBVerificationAccess>(
-    `SELECT va.* FROM docq_mint_verification_access va
-     JOIN docq_mint_payments p ON p.id = va.payment_id
-     WHERE va.token_id = $1 AND p.status = 'succeeded'
-     ORDER BY va.created_at DESC LIMIT 1`,
-    [verificationToken.id]
-  );
-
-  if (!paidAccess) {
+  if (!(await hasVerificationAccess(request, verificationToken.id))) {
     return NextResponse.json(
       { error: 'Payment required to access document' },
       { status: 402 }

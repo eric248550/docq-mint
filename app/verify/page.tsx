@@ -7,6 +7,7 @@ import { Modal, useModal } from '@/components/ui/alert-modal';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useAuthStore } from '@/store/useAuthStore';
+import { saveAccessGrant, verificationHeaders } from '@/lib/verify/grant-storage';
 import {
   FileText,
   Download,
@@ -95,6 +96,8 @@ function CheckoutForm({
       if (!res.ok) {
         setError('Payment recorded but access confirmation failed. Please contact support.');
       } else {
+        const { grant } = await res.json();
+        saveAccessGrant(token, grant);
         onSuccess();
       }
     }
@@ -131,7 +134,6 @@ function CheckoutForm({
 function VerifyPageContent() {
   const searchParams = useSearchParams();
   const tokenFromUrl = searchParams.get('token');
-  const verifierIdFromUrl = searchParams.get('verifierId');
   const { user, getAuthToken, selectedVerifierId } = useAuthStore();
 
   const [token, setToken] = useState(tokenFromUrl || '');
@@ -187,13 +189,10 @@ function VerifyPageContent() {
 
     try {
       const extractedToken = extractToken(token);
-      // Include verifierId from URL (Re-open link) or active verifier context
-      const effectiveVerifierId = verifierIdFromUrl || selectedVerifierId;
       const authToken = await getAuthToken();
-      const headers: Record<string, string> = {};
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-      const qs = effectiveVerifierId ? `?verifierId=${effectiveVerifierId}` : '';
-      const response = await fetch(`/api/verify/${extractedToken}${qs}`, { headers });
+      const response = await fetch(`/api/verify/${extractedToken}`, {
+        headers: verificationHeaders(extractedToken, authToken),
+      });
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to verify token');
@@ -243,7 +242,9 @@ function VerifyPageContent() {
     if (!hasPaid || !documentInfo) return;
     setIsDownloading(true);
     try {
-      const response = await fetch(`/api/verify/${token}/download`);
+      const response = await fetch(`/api/verify/${token}/download`, {
+        headers: verificationHeaders(token, await getAuthToken()),
+      });
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to get download URL');
@@ -274,6 +275,7 @@ function VerifyPageContent() {
       formData.append('file', selectedFile);
       const response = await fetch(`/api/verify/${token}/compare`, {
         method: 'POST',
+        headers: verificationHeaders(token, await getAuthToken()),
         body: formData,
       });
       if (!response.ok) {
